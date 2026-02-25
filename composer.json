@@ -1,0 +1,28 @@
+{
+    "name": "luany/core",
+    "description": "Luany Core — Router, middleware pipeline and DI resolver hook for the Luany ecosystem.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["php", "router", "middleware", "mvc", "luany", "core"],
+    "homepage": "https://github.com/luany-ecosystem/luany-core",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Luany\\Core\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Luany\\Core\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable"
+}
