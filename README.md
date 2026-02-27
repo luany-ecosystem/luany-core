@@ -35,7 +35,7 @@ Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
 $uri = Route::router()->getNamedRoute('users.show', ['id' => 42]); // /users/42
 
 // Groups
-Route::prefix('admin')->middleware(AuthMiddleware::class)->group(function () {
+Route::prefix('admin')->middleware(MyCustomMiddleware::class)->group(function () {
     Route::get('/dashboard', [AdminController::class, 'index']);
     Route::get('/users',     [AdminController::class, 'users']);
 });
@@ -48,7 +48,11 @@ Route::apiResource('posts', PostController::class); // without create/edit
 Route::setViewRenderer(fn($view, $data) => $engine->render($view, $data));
 Route::view('/welcome', 'pages.welcome');
 
-// Dispatch
+// Handle (returns Response — preferred for testability)
+$response = Route::handle();
+$response->send();
+
+// Or dispatch (convenience wrapper)
 Route::dispatch();
 ```
 
@@ -105,16 +109,33 @@ Controllers can return `Response`, `string`, or `array` — the router normalise
 
 ## Middleware
 
+Implement `MiddlewareInterface` to create middleware:
+
 ```php
 use Luany\Core\Middleware\MiddlewareInterface;
 use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 
-class AuthMiddleware implements MiddlewareInterface
+class MyCustomMiddleware implements MiddlewareInterface
 {
     public function handle(Request $request, callable $next): Response
     {
-        if (empty($_SESSION['user_id'])) {
+        // Before action
+        $response = $next($request);
+        // After action
+        return $response;
+    }
+}
+```
+
+Short-circuit (stop the pipeline):
+
+```php
+class MyCustomMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): Response
+    {
+        if (/* condition */) {
             return Response::redirect('/login');
         }
         return $next($request);
@@ -129,7 +150,7 @@ use Luany\Core\Middleware\Pipeline;
 
 $response = (new Pipeline())
     ->send($request)
-    ->through([AuthMiddleware::class, LogMiddleware::class])
+    ->through([MyCustomMiddleware::class])
     ->then(fn(Request $req) => $controller->action($req));
 
 $response->send();
@@ -146,25 +167,26 @@ composer install
 vendor/bin/phpunit
 ```
 
-75 tests, 96 assertions.
+77 tests, 100 assertions.
 
 ## Changelog
+
+### v0.2.1
+- README corrected — middleware examples updated to generic `MyCustomMiddleware`; authentication middleware moved to `luany-framework`
 
 ### v0.2.0
 - `Request` — full HTTP request encapsulation (`fromGlobals`, JSON body, method override, `input`, `only`, `except`, `has`, `filled`, `isAjax`, `expectsJson`)
 - `Response` — status, headers, body, `json()`, `redirect()`, error factories, `send()`
 - `MiddlewareInterface` — contract `handle(Request, callable): Response`
 - `Pipeline` — middleware chain with correct wrapping order and short-circuit support
-- `AuthMiddleware` — rewritten to implement `MiddlewareInterface`, zero external dependencies
-- `Router` — dispatch cycle uses `Request`/`Response`/`Pipeline`; controllers return `Response|string|array`
+- `Router` — dispatch cycle uses `Request`/`Response`/`Pipeline`; `handle()` returns Response, `dispatch()` sends
 - `Route::view()` — injectable renderer via `Route::setViewRenderer()`, no external helpers
 - Fixed: `RouteGroup` and `RouteRegistrar` namespace (`Core\Routing` → `Luany\Core\Routing`)
-- 75 unit tests — `RequestTest`, `ResponseTest`, `RouterTest`, `PipelineTest`
+- 77 unit tests — `RequestTest`, `ResponseTest`, `RouterTest`, `PipelineTest`
 
 ### v0.1.0
 - Initial release — `Router`, `RouteGroup`, `RouteRegistrar`, `Route` facade
 - Resource routes, named routes, group prefix/middleware
-- `AuthMiddleware` (basic)
 
 ## License
 
