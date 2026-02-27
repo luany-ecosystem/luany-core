@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Routing;
+namespace Luany\Core\Routing;
 
 /**
  * RouteRegistrar

@@ -2,11 +2,18 @@
 
 namespace Luany\Core\Routing;
 
+use Luany\Core\Http\Request;
+use Luany\Core\Http\Response;
+use Luany\Core\Middleware\Pipeline;
+
 /**
  * Router Engine
  *
  * Handles route registration, group context (prefix + middleware),
  * named route resolution and request dispatching.
+ *
+ * Dispatch cycle:
+ *   Request → match route → run Pipeline (middleware) → execute action → Response::send()
  *
  * Group context stack
  * ───────────────────
@@ -14,17 +21,12 @@ namespace Luany\Core\Routing;
  * it pushes a context frame onto $groupStack.
  * Every call to addRoute() reads the stack to apply prefix + middleware.
  * When the group callback finishes, the frame is popped.
- *
- * This means group callbacks can use Route::get() etc. directly — the
- * context is read transparently without needing to change how routes are declared.
  */
 class Router
 {
-    private array  $routes      = [];
-    private array  $namedRoutes = [];
-
-    /** Stack of [{prefix, middleware}] — pushed/popped by RouteGroup::group() */
-    private array  $groupStack  = [];
+    private array $routes      = [];
+    private array $namedRoutes = [];
+    private array $groupStack  = [];
 
     // ── Group context ──────────────────────────────────────────────────────────
 
@@ -62,19 +64,13 @@ class Router
 
     // ── Route registration ─────────────────────────────────────────────────────
 
-    /**
-     * Register a route and return a RouteRegistrar for fluent chaining.
-     * Automatically applies current group prefix and middleware.
-     */
-    public function addRoute(string $method, string $uri, $action, ?string $name = null): RouteRegistrar
+    public function addRoute(string $method, string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
-        // Apply group prefix
         $prefix = $this->getCurrentPrefix();
         $uri    = $prefix . '/' . ltrim($uri, '/');
         $uri    = '/' . trim($uri, '/');
-        if ($uri === '/') $uri = '/';
+        if ($uri === '') $uri = '/';
 
-        // Apply group middleware
         $middleware = $this->getCurrentMiddleware();
 
         $route = [
@@ -92,15 +88,11 @@ class Router
             $this->namedRoutes[$name] = $uri;
         }
 
-        // Pass references so RouteRegistrar mutations are reflected here
         return new RouteRegistrar($this->routes[$index], $this->namedRoutes);
     }
 
     // ── Named routes ──────────────────────────────────────────────────────────
 
-    /**
-     * Resolve a named route to its URI, replacing {param} placeholders.
-     */
     public function getNamedRoute(string $name, array $params = []): ?string
     {
         if (!isset($this->namedRoutes[$name])) {
@@ -118,27 +110,12 @@ class Router
 
     // ── Dispatch ───────────────────────────────────────────────────────────────
 
-    public function dispatch(): void
+    public function dispatch(?Request $request = null): void
     {
-        $method = $_SERVER['REQUEST_METHOD'];
-        $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+        $request ??= Request::fromGlobals();
 
-        // Strip script directory from URI (e.g. when running in a sub-folder)
-        $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
-        if ($scriptDir && $scriptDir !== '/' && str_starts_with($uri, $scriptDir)) {
-            $uri = substr($uri, strlen($scriptDir));
-        }
-
-        $uri = '/' . trim($uri, '/');
-        if ($uri === '/') $uri = '/';
-
-        // Method override via _method in POST body
-        if ($method === 'POST' && isset($_POST['_method'])) {
-            $override = strtoupper($_POST['_method']);
-            if (in_array($override, ['PUT', 'PATCH', 'DELETE'], true)) {
-                $method = $override;
-            }
-        }
+        $method = $request->method();
+        $uri    = $request->uri();
 
         foreach ($this->routes as $route) {
             if ($route['method'] !== $method && $route['method'] !== 'ANY') {
@@ -150,12 +127,17 @@ class Router
             if (preg_match($pattern, $uri, $matches)) {
                 $params = $this->extractParams($matches);
 
-                // Run route middleware
-                foreach ($route['middleware'] as $middleware) {
-                    $this->runMiddleware($middleware);
+                // Inject route params into request query for controller access
+                foreach ($params as $key => $value) {
+                    $_GET[$key] = $value;
                 }
 
-                $this->executeAction($route['action'], $params);
+                $response = (new Pipeline())
+                    ->send($request)
+                    ->through($route['middleware'])
+                    ->then(fn(Request $req) => $this->executeAction($route['action'], $req, $params));
+
+                $response->send();
                 return;
             }
         }
@@ -183,69 +165,70 @@ class Router
         return $params;
     }
 
-    private function runMiddleware($middleware): void
-    {
-        if (is_callable($middleware)) {
-            $middleware();
-            return;
-        }
-
-        if (is_string($middleware) && class_exists($middleware)) {
-            $instance = new $middleware();
-            if (method_exists($instance, 'handle')) {
-                $instance->handle();
-            }
-        }
-    }
-
-    private function executeAction($action, array $params = []): void
+    private function executeAction(mixed $action, Request $request, array $params = []): Response
     {
         if (is_callable($action)) {
-            $result = call_user_func_array($action, array_values($params));
-            if (is_string($result)) echo $result;
-            return;
+            $result = call_user_func($action, $request, ...array_values($params));
+            return $this->toResponse($result);
         }
 
         if (is_array($action)) {
             [$controller, $method] = $action;
 
-            if (!class_exists($controller)) {
-                $controller = '\\App\\Http\\Controllers\\' . $controller;
+            if (is_string($controller) && !class_exists($controller)) {
+                $fqn = '\\App\\Http\\Controllers\\' . $controller;
+                if (class_exists($fqn)) {
+                    $controller = $fqn;
+                } else {
+                    throw new \RuntimeException("Controller not found: {$controller}");
+                }
             }
 
-            if (!class_exists($controller)) {
-                throw new \Exception("Controller not found: {$controller}");
-            }
-
-            $instance = new $controller();
+            $instance = is_string($controller) ? new $controller() : $controller;
 
             if (!method_exists($instance, $method)) {
-                throw new \Exception("Method [{$method}] not found in [{$controller}]");
+                throw new \RuntimeException("Method [{$method}] not found in [" . get_class($instance) . "]");
             }
 
-            // Inject route params into $_GET for backward compatibility
-            foreach ($params as $key => $value) {
-                $_GET[$key] = $value;
-            }
-
-            $result = call_user_func_array([$instance, $method], array_values($params));
-            if (is_string($result)) echo $result;
-            return;
+            $result = call_user_func([$instance, $method], $request, ...array_values($params));
+            return $this->toResponse($result);
         }
 
-        throw new \Exception('Invalid route action');
+        throw new \RuntimeException('Invalid route action — must be callable or [Controller::class, method]');
+    }
+
+    /**
+     * Coerce a controller return value into a Response.
+     * Accepts: Response | string | array (auto JSON)
+     */
+    private function toResponse(mixed $result): Response
+    {
+        if ($result instanceof Response) {
+            return $result;
+        }
+
+        if (is_array($result) || is_object($result)) {
+            return Response::json($result);
+        }
+
+        if (is_string($result) || is_null($result)) {
+            return Response::make((string) $result);
+        }
+
+        return Response::make((string) $result);
     }
 
     private function handleNotFound(): void
     {
-        http_response_code(404);
+        $body = '<h1>404 — Page Not Found</h1>';
 
         if (defined('ERRORS_PATH') && file_exists(ERRORS_PATH . '/404.php')) {
+            ob_start();
             require ERRORS_PATH . '/404.php';
-        } else {
-            echo '<h1>404 — Page Not Found</h1>';
+            $body = ob_get_clean();
         }
 
+        Response::notFound($body)->send();
         exit;
     }
 }

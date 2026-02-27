@@ -188,21 +188,47 @@ class Route
      * Route::view('/welcome', 'welcome');
      * Route::view('/welcome', 'welcome', ['name' => 'Taylor']);
      */
+    /**
+     * Register a view route.
+     * The $renderer callable receives (string $viewName, array $data): string.
+     * Inject your engine at bootstrap via Route::setViewRenderer().
+     *
+     * Usage (in bootstrap/app.php):
+     *   Route::setViewRenderer(fn($view, $data) => $engine->render($view, $data));
+     *   Route::view('/welcome', 'pages.welcome');
+     */
+    private static ?\Closure $viewRenderer = null;
+
+    public static function setViewRenderer(\Closure $renderer): void
+    {
+        self::$viewRenderer = $renderer;
+    }
+
     public static function view(
         string $uri,
         string $viewName,
         array $data = [],
         ?string $name = null
     ): RouteRegistrar {
-        // Create closure that renders the view
-        $action = function () use ($viewName, $data) {
-            // Merge route parameters with data
+        $renderer = self::$viewRenderer;
+
+        $action = function ($request) use ($viewName, $data, $renderer) {
             $viewData = array_merge($data, $_GET);
-            
-            // Use view helper (returns string)
-            return view($viewName, $viewData);
+
+            if ($renderer !== null) {
+                return ($renderer)($viewName, $viewData);
+            }
+
+            // Fallback: look for a registered view() function
+            if (function_exists('view')) {
+                return view($viewName, $viewData);
+            }
+
+            throw new \RuntimeException(
+                "No view renderer configured. Call Route::setViewRenderer() at bootstrap."
+            );
         };
-        
+
         return self::get($uri, $action, $name);
     }
     
