@@ -16,7 +16,7 @@ use Luany\Core\Http\Response;
  * Usage:
  *   $response = (new Pipeline())
  *       ->send($request)
- *       ->through([AuthMiddleware::class, LogMiddleware::class])
+ *       ->through([MyCustomMiddleware::class, LogMiddleware::class])
  *       ->then(fn(Request $req) => $controller->action($req));
  */
 class Pipeline

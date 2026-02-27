@@ -9,7 +9,7 @@ namespace Luany\Core\Routing;
  *
  *   Route::get('/users', [UserController::class, 'index'])
  *       ->name('users.index')
- *       ->middleware(AuthMiddleware::class);
+ *       ->middleware(MyCustomMiddleware::class);
  *
  * Both $route and $namedRoutes are held by reference so that any
  * mutation here is immediately visible to the Router instance.

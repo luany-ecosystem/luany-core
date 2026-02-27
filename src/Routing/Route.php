@@ -2,6 +2,9 @@
 
 namespace Luany\Core\Routing;
 
+use Luany\Core\Http\Request;
+use Luany\Core\Http\Response;
+
 /**
  * Route Facade - Luany framework
  * 
@@ -233,7 +236,20 @@ class Route
     }
     
     /**
-     * Dispatch the current request
+     * Resolve the request and return a Response — does NOT send.
+     * Preferred over dispatch() for testability.
+     *
+     * Usage (public/index.php):
+     *   Route::handle()->send();
+     */
+    public static function handle(?Request $request = null): Response
+    {
+        return self::router()->handle($request);
+    }
+
+    /**
+     * Resolve and send immediately.
+     * Convenience wrapper for handle()->send().
      */
     public static function dispatch(): void
     {

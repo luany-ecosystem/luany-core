@@ -22,9 +22,7 @@ Route::resource('posts', PostController::class);
 ### Groups & Middleware
 
 ```php
-use Luany\Core\Middleware\AuthMiddleware;
-
-Route::middleware(AuthMiddleware::class)->group(function () {
+Route::middleware(MyCustomMiddleware::class)->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index']);
 });
 

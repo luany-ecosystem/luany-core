@@ -110,7 +110,14 @@ class Router
 
     // ── Dispatch ───────────────────────────────────────────────────────────────
 
-    public function dispatch(?Request $request = null): void
+    /**
+     * Resolve the request to a Response — does NOT send.
+     * Call ->send() on the returned Response at the application entry point.
+     *
+     * Usage (public/index.php):
+     *   Route::handle()->send();
+     */
+    public function handle(?Request $request = null): Response
     {
         $request ??= Request::fromGlobals();
 
@@ -127,22 +134,27 @@ class Router
             if (preg_match($pattern, $uri, $matches)) {
                 $params = $this->extractParams($matches);
 
-                // Inject route params into request query for controller access
                 foreach ($params as $key => $value) {
                     $_GET[$key] = $value;
                 }
 
-                $response = (new Pipeline())
+                return (new Pipeline())
                     ->send($request)
                     ->through($route['middleware'])
                     ->then(fn(Request $req) => $this->executeAction($route['action'], $req, $params));
-
-                $response->send();
-                return;
             }
         }
 
-        $this->handleNotFound();
+        return $this->notFoundResponse();
+    }
+
+    /**
+     * Resolve and send immediately.
+     * Convenience wrapper for handle()->send().
+     */
+    public function dispatch(?Request $request = null): void
+    {
+        $this->handle($request)->send();
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
@@ -218,7 +230,7 @@ class Router
         return Response::make((string) $result);
     }
 
-    private function handleNotFound(): void
+    private function notFoundResponse(): Response
     {
         $body = '<h1>404 — Page Not Found</h1>';
 
@@ -228,7 +240,6 @@ class Router
             $body = ob_get_clean();
         }
 
-        Response::notFound($body)->send();
-        exit;
+        return Response::notFound($body);
     }
 }

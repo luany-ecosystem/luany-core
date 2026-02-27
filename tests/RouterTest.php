@@ -30,6 +30,28 @@ class RouterTest extends TestCase
 
     // ── addRoute ──────────────────────────────────────────────────────────────
 
+    public function test_handle_returns_response_without_sending(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/ping', fn() => Response::make('pong'));
+
+        $request = $this->makeRequest('GET', '/ping');
+        $response = $router->handle($request);
+
+        $this->assertInstanceOf(Response::class, $response);
+        $this->assertSame('pong', $response->getBody());
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function test_handle_returns_404_for_unknown_route(): void
+    {
+        $router = new Router();
+        $request = $this->makeRequest('GET', '/unknown');
+        $response = $router->handle($request);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
     public function test_add_route_returns_route_registrar(): void
     {
         $router = new Router();

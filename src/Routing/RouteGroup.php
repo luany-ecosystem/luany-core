@@ -8,11 +8,11 @@ namespace Luany\Core\Routing;
  * Allows grouping routes under shared prefix and/or middleware.
  *
  * Usage:
- *   Route::middleware(AuthMiddleware::class)->group(function () {
+ *   Route::middleware(MyCustomMiddleware::class)->group(function () {
  *       Route::get('/dashboard', [DashboardController::class, 'index']);
  *   });
  *
- *   Route::prefix('admin')->middleware(AuthMiddleware::class)->group(function () {
+ *   Route::prefix('admin')->middleware(MyCustomMiddleware::class)->group(function () {
  *       Route::get('/users', [AdminController::class, 'users']); // → /admin/users
  *   });
  *

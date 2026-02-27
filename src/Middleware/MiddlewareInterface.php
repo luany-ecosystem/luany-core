@@ -13,7 +13,7 @@ use Luany\Core\Http\Response;
  * and must return a Response.
  *
  * Usage:
- *   class AuthMiddleware implements MiddlewareInterface
+ *   class MyCustomMiddleware implements MiddlewareInterface
  *   {
  *       public function handle(Request $request, callable $next): Response
  *       {
