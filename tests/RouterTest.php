@@ -43,13 +43,27 @@ class RouterTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function test_handle_returns_404_for_unknown_route(): void
+    public function test_handle_throws_for_unknown_route(): void
     {
-        $router = new Router();
+        $router  = new Router();
         $request = $this->makeRequest('GET', '/unknown');
-        $response = $router->handle($request);
 
-        $this->assertSame(404, $response->getStatusCode());
+        $this->expectException(\Luany\Core\Exceptions\RouteNotFoundException::class);
+        $router->handle($request);
+    }
+
+    public function test_route_not_found_exception_has_404_code(): void
+    {
+        $router  = new Router();
+        $request = $this->makeRequest('GET', '/unknown');
+
+        try {
+            $router->handle($request);
+            $this->fail('Expected RouteNotFoundException');
+        } catch (\Luany\Core\Exceptions\RouteNotFoundException $e) {
+            $this->assertSame(404, $e->getCode());
+            $this->assertStringContainsString('/unknown', $e->getMessage());
+        }
     }
 
     public function test_add_route_returns_route_registrar(): void

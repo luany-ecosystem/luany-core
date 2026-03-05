@@ -5,6 +5,7 @@ namespace Luany\Core\Routing;
 use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 use Luany\Core\Middleware\Pipeline;
+use Luany\Core\Exceptions\RouteNotFoundException;
 
 /**
  * Router Engine
@@ -145,12 +146,13 @@ class Router
             }
         }
 
-        return $this->notFoundResponse();
+        throw new \Luany\Core\Exceptions\RouteNotFoundException($method, $uri);
     }
 
     /**
      * Resolve and send immediately.
      * Convenience wrapper for handle()->send().
+     * Exceptions propagate to the caller (Kernel::handleException).
      */
     public function dispatch(?Request $request = null): void
     {
@@ -228,18 +230,5 @@ class Router
         }
 
         return Response::make((string) $result);
-    }
-
-    private function notFoundResponse(): Response
-    {
-        $body = '<h1>404 — Page Not Found</h1>';
-
-        if (defined('ERRORS_PATH') && file_exists(ERRORS_PATH . '/404.php')) {
-            ob_start();
-            require ERRORS_PATH . '/404.php';
-            $body = ob_get_clean();
-        }
-
-        return Response::notFound($body);
     }
 }
