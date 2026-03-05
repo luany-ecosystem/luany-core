@@ -167,12 +167,15 @@ composer install
 vendor/bin/phpunit
 ```
 
-77 tests, 100 assertions.
+78 tests, 102 assertions.
 
 ## Changelog
 
 ### v0.2.1
-- README corrected — middleware examples updated to generic `MyCustomMiddleware`; authentication middleware moved to `luany-framework`
+- `Router` — throws `RouteNotFoundException` instead of returning a plain 404 response
+- `RouteNotFoundException` — new exception in `Luany\Core\Exceptions` with HTTP code 404
+- Tests updated: `test_handle_throws_for_unknown_route`, `test_route_not_found_exception_has_404_code`
+- 78 tests, 102 assertions
 
 ### v0.2.0
 - `Request` — full HTTP request encapsulation (`fromGlobals`, JSON body, method override, `input`, `only`, `except`, `has`, `filled`, `isAjax`, `expectsJson`)
