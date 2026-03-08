@@ -20,6 +20,7 @@ class Request
     private array  $files;
     private array  $headers;
     private array  $server;
+    private array  $cookies;
 
     public function __construct(
         string $method,
@@ -28,7 +29,8 @@ class Request
         array  $body    = [],
         array  $files   = [],
         array  $headers = [],
-        array  $server  = []
+        array  $server  = [],
+        array  $cookies = []
     ) {
         $this->method  = strtoupper($method);
         $this->uri     = $uri;
@@ -87,7 +89,8 @@ class Request
             body:    $body,
             files:   $_FILES,
             headers: self::parseHeaders(),
-            server:  $_SERVER
+            server:  $_SERVER,
+            cookies: $_COOKIE,
         );
     }
 
@@ -211,6 +214,16 @@ class Request
     public function server(string $key, mixed $default = null): mixed
     {
         return $this->server[$key] ?? $default;
+    }
+
+    public function cookie(string $key, mixed $default = null): mixed
+    {
+        return $this->cookies[$key] ?? $default;
+    }
+
+    public function hasCookie(string $key): bool
+    {
+        return isset($this->cookies[$key]);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
