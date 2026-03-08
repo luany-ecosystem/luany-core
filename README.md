@@ -77,6 +77,9 @@ public function store(Request $request): Response
     $request->isAjax();          // bool
     $request->expectsJson();     // bool
     $request->ip();              // string
+    $request->cookie('app_locale');          // string|null
+    $request->cookie('app_locale', 'en');   // with default
+    $request->hasCookie('app_locale');      // bool
 }
 
 // Create from globals (called automatically by Router::dispatch)
@@ -167,15 +170,19 @@ composer install
 vendor/bin/phpunit
 ```
 
-78 tests, 102 assertions.
+83 tests, 107 assertions.
 
 ## Changelog
+
+### v0.2.2
+- `Request` — `cookie()` and `hasCookie()` added — `$_COOKIE` now encapsulated in `fromGlobals()`
+- 83 tests, 107 assertions
 
 ### v0.2.1
 - `Router` — throws `RouteNotFoundException` instead of returning a plain 404 response
 - `RouteNotFoundException` — new exception in `Luany\Core\Exceptions` with HTTP code 404
 - Tests updated: `test_handle_throws_for_unknown_route`, `test_route_not_found_exception_has_404_code`
-- 78 tests, 102 assertions
+- 83 tests, 107 assertions
 
 ### v0.2.0
 - `Request` — full HTTP request encapsulation (`fromGlobals`, JSON body, method override, `input`, `only`, `except`, `has`, `filled`, `isAjax`, `expectsJson`)
