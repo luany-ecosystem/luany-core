@@ -174,8 +174,13 @@ vendor/bin/phpunit
 
 ## Changelog
 
+### v0.2.3
+- `Request` — fix: `$this->cookies` assignment missing in constructor (introduced in v0.2.2)
+- 83 tests, 107 assertions
+
 ### v0.2.2
 - `Request` — `cookie()` and `hasCookie()` added — `$_COOKIE` now encapsulated in `fromGlobals()`
+- ⚠️ Buggy release — constructor assignment missing, use v0.2.3
 - 83 tests, 107 assertions
 
 ### v0.2.1
