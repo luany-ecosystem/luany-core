@@ -39,6 +39,7 @@ class Request
         $this->files   = $files;
         $this->headers = $headers;
         $this->server  = $server;
+        $this->cookies = $cookies;
     }
 
     // ── Factory ────────────────────────────────────────────────────────────────

@@ -8,15 +8,16 @@ use PHPUnit\Framework\TestCase;
 class RequestTest extends TestCase
 {
     private function makeRequest(
-        string $method = 'GET',
-        string $uri    = '/',
-        array  $query  = [],
-        array  $body   = [],
-        array  $files  = [],
+        string $method  = 'GET',
+        string $uri     = '/',
+        array  $query   = [],
+        array  $body    = [],
+        array  $files   = [],
         array  $headers = [],
-        array  $server  = []
+        array  $server  = [],
+        array  $cookies = []   // ← adicionar
     ): Request {
-        return new Request($method, $uri, $query, $body, $files, $headers, $server);
+        return new Request($method, $uri, $query, $body, $files, $headers, $server, $cookies);
     }
 
     // ── Method ────────────────────────────────────────────────────────────────
@@ -209,4 +210,35 @@ class RequestTest extends TestCase
         $request = $this->makeRequest('GET', '/', [], [], [], [], ['REMOTE_ADDR' => '127.0.0.1']);
         $this->assertSame('127.0.0.1', $request->server('REMOTE_ADDR'));
     }
+
+    // ── Cookies ───────────────────────────────────────────────────────────────
+
+    public function test_cookie_returns_value(): void
+    {
+        $request = $this->makeRequest(cookies: ['app_locale' => 'pt']);
+        $this->assertSame('pt', $request->cookie('app_locale'));
+    }
+
+    public function test_cookie_returns_null_when_missing(): void
+    {
+        $this->assertNull($this->makeRequest()->cookie('app_locale'));
+    }
+
+    public function test_cookie_returns_default_when_missing(): void
+    {
+        $request = $this->makeRequest();
+        $this->assertSame('en', $request->cookie('app_locale', 'en'));
+    }
+
+    public function test_has_cookie_true_when_present(): void
+    {
+        $request = $this->makeRequest(cookies: ['app_locale' => 'pt']);
+        $this->assertTrue($request->hasCookie('app_locale'));
+    }
+
+    public function test_has_cookie_false_when_missing(): void
+    {
+        $this->assertFalse($this->makeRequest()->hasCookie('app_locale'));
+    }
+
 }
