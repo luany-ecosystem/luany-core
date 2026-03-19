@@ -6,200 +6,188 @@ use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 
 /**
- * Route Facade - Luany framework
- * 
+ * Route Facade
+ *
+ * Static API over the singleton Router instance.
+ * All calls delegate to the underlying Router.
+ *
  * Usage:
- * Route::get('/users', [UserController::class, 'index']);
- * Route::post('/users', [UserController::class, 'store']);
- * Route::resource('users', UserController::class);
+ *   Route::get('/users', [UserController::class, 'index']);
+ *   Route::post('/users', [UserController::class, 'store']);
+ *   Route::resource('users', UserController::class);
+ *
+ * Model binding:
+ *   Route::bind('user', fn($id) => User::find($id));
+ *   Route::model('post', Post::class);   // shorthand for find()
+ *
+ * Route caching:
+ *   Route::loadCache(base_path('storage/cache/routes.php'))
+ *       || require base_path('routes/http.php');
+ *   Route::cache(base_path('storage/cache/routes.php'));
  */
 class Route
 {
     private static ?Router $router = null;
-    
+
     /**
-     * Get router instance (Singleton)
+     * Get the singleton Router instance.
      */
-    private static function router(): Router
+    public static function router(): Router
     {
         if (self::$router === null) {
             self::$router = new Router();
         }
         return self::$router;
     }
-    
+
     /**
-     * Register GET route
+     * Replace the singleton Router (useful for testing).
      */
-    public static function get(string $uri, $action, ?string $name = null): RouteRegistrar
+    public static function setRouter(Router $router): void
+    {
+        self::$router = $router;
+    }
+
+    /**
+     * Reset the singleton Router to null.
+     * Call in test setUp() to prevent route bleed between tests.
+     */
+    public static function reset(): void
+    {
+        self::$router      = null;
+        self::$viewRenderer = null;
+    }
+
+    // ── HTTP verb registration ────────────────────────────────────────────────
+
+    public static function get(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('GET', $uri, $action, $name);
     }
-    
-    /**
-     * Register POST route
-     */
-    public static function post(string $uri, $action, ?string $name = null): RouteRegistrar
+
+    public static function post(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('POST', $uri, $action, $name);
     }
-    
-    /**
-     * Register PUT route
-     */
-    public static function put(string $uri, $action, ?string $name = null): RouteRegistrar
+
+    public static function put(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('PUT', $uri, $action, $name);
     }
-    
-    /**
-     * Register DELETE route
-     */
-    public static function delete(string $uri, $action, ?string $name = null): RouteRegistrar
+
+    public static function delete(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('DELETE', $uri, $action, $name);
     }
-    
-    /**
-     * Register PATCH route
-     */
-    public static function patch(string $uri, $action, ?string $name = null): RouteRegistrar
+
+    public static function patch(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('PATCH', $uri, $action, $name);
     }
-    
-    /**
-     * Register ANY route (all methods)
-     */
-    public static function any(string $uri, $action, ?string $name = null): RouteRegistrar
+
+    public static function any(string $uri, mixed $action, ?string $name = null): RouteRegistrar
     {
         return self::router()->addRoute('ANY', $uri, $action, $name);
     }
-    
+
+    // ── Resource routing ──────────────────────────────────────────────────────
+
     /**
-     * Register resource routes (RESTful CRUD)
-     * 
+     * Register resource routes (RESTful CRUD).
+     *
      * Generates:
-     * GET    /resource           -> index
-     * GET    /resource/create    -> create
-     * POST   /resource           -> store
-     * GET    /resource/{id}      -> show
-     * GET    /resource/{id}/edit -> edit
-     * PUT    /resource/{id}      -> update
-     * PATCH  /resource/{id}      -> update (alternative)
-     * DELETE /resource/{id}      -> destroy
-     * 
-     * Usage:
-     * Route::resource('users', UserController::class);
-     * Route::resource('users', UserController::class, ['only' => ['index', 'show']]);
-     * Route::resource('users', UserController::class, ['except' => ['create', 'edit']]);
+     *   GET    /resource           → index
+     *   GET    /resource/create    → create
+     *   POST   /resource           → store
+     *   GET    /resource/{id}      → show
+     *   GET    /resource/{id}/edit → edit
+     *   PUT    /resource/{id}      → update
+     *   PATCH  /resource/{id}      → update (alternative)
+     *   DELETE /resource/{id}      → destroy
+     *
+     * Options:
+     *   ['only'   => ['index', 'show']]      — include only these actions
+     *   ['except' => ['create', 'edit']]     — exclude these actions
      */
     public static function resource(string $name, string $controller, array $options = []): void
     {
         $base = '/' . trim($name, '/');
-        
-        // Define all available actions
+
         $actions = [
-            'index' => ['GET', $base, 'index'],
-            'create' => ['GET', "{$base}/create", 'create'],
-            'store' => ['POST', $base, 'store'],
-            'show' => ['GET', "{$base}/{id}", 'show'],
-            'edit' => ['GET', "{$base}/{id}/edit", 'edit'],
-            'update' => ['PUT', "{$base}/{id}", 'update'],
-            'destroy' => ['DELETE', "{$base}/{id}", 'destroy'],
+            'index'   => ['GET',    $base,               'index'],
+            'create'  => ['GET',    "{$base}/create",    'create'],
+            'store'   => ['POST',   $base,               'store'],
+            'show'    => ['GET',    "{$base}/{id}",      'show'],
+            'edit'    => ['GET',    "{$base}/{id}/edit", 'edit'],
+            'update'  => ['PUT',    "{$base}/{id}",      'update'],
+            'destroy' => ['DELETE', "{$base}/{id}",      'destroy'],
         ];
-        
-        // Determine which actions to register
-        $only = $options['only'] ?? array_keys($actions);
-        $except = $options['except'] ?? [];
-        
-        if (!is_array($only)) {
-            $only = array_keys($actions);
-        }
-        if (!is_array($except)) {
-            $except = [];
-        }
-        
+
+        $only   = is_array($options['only']   ?? null) ? $options['only']   : array_keys($actions);
+        $except = is_array($options['except'] ?? null) ? $options['except'] : [];
+
         foreach ($only as $action) {
-            if (in_array($action, $except) || !isset($actions[$action])) {
+            if (in_array($action, $except, true) || !isset($actions[$action])) {
                 continue;
             }
-            
             [$method, $uri, $methodName] = $actions[$action];
-            
-            // Register route using appropriate method
-            $methodFunc = strtolower($method);
-            self::{$methodFunc}($uri, [$controller, $methodName])
+            self::{strtolower($method)}($uri, [$controller, $methodName])
                 ->name("{$name}.{$action}");
         }
-        
-        // Also register PATCH for update if update was registered
-        if (in_array('update', $only) && !in_array('update', $except)) {
+
+        // Also register PATCH for update
+        if (in_array('update', $only, true) && !in_array('update', $except, true)) {
             self::patch("{$base}/{id}", [$controller, 'update']);
         }
     }
-    
+
     /**
-     * Register API resource routes (RESTful CRUD for APIs)
-     * Like resource() but without create/edit forms (suitable for APIs)
-     * 
-     * Generates:
-     * GET    /resource       -> index
-     * POST   /resource       -> store
-     * GET    /resource/{id}  -> show
-     * PUT    /resource/{id}  -> update
-     * PATCH  /resource/{id}  -> update (alternative)
-     * DELETE /resource/{id}  -> destroy
-     * 
-     * Usage:
-     * Route::apiResource('posts', PostController::class);
-     * Route::apiResource('posts', PostController::class, ['only' => ['index', 'show']]);
+     * Register API resource routes (no create/edit form routes).
+     *
+     * Generates: index, store, show, update, destroy.
      */
     public static function apiResource(string $name, string $controller, array $options = []): void
     {
-        // API resources don't have 'create' and 'edit' form routes
-        $options['except'] = array_merge(
-            $options['except'] ?? [],
-            ['create', 'edit']
-        );
-        
+        $options['except'] = array_merge($options['except'] ?? [], ['create', 'edit']);
         self::resource($name, $controller, $options);
     }
-    
-    /**
-     * Register middleware group
-     */
-    public static function middleware($middleware): RouteGroup
+
+    // ── Group routing ─────────────────────────────────────────────────────────
+
+    public static function middleware(mixed $middleware): RouteGroup
     {
-        $group = new RouteGroup(self::router());
-        return $group->middleware($middleware);
+        return (new RouteGroup(self::router()))->middleware($middleware);
     }
-    
-    /**
-     * Register route prefix group
-     */
+
     public static function prefix(string $prefix): RouteGroup
     {
-        $group = new RouteGroup(self::router());
-        return $group->prefix($prefix);
+        return (new RouteGroup(self::router()))->prefix($prefix);
     }
-    
+
     /**
-     * Register view route (returns view without controller)
-     * 
-     * Usage:
-     * Route::view('/welcome', 'welcome');
-     * Route::view('/welcome', 'welcome', ['name' => 'Taylor']);
-     */
-    /**
-     * Register a view route.
-     * The $renderer callable receives (string $viewName, array $data): string.
-     * Inject your engine at bootstrap via Route::setViewRenderer().
+     * Shorthand for combining prefix + middleware in one call.
      *
-     * Usage (in bootstrap/app.php):
-     *   Route::setViewRenderer(fn($view, $data) => $engine->render($view, $data));
-     *   Route::view('/welcome', 'pages.welcome');
+     * Usage:
+     *   Route::group(['prefix' => '/admin', 'middleware' => [AuthMiddleware::class]], function () {
+     *       Route::get('/dashboard', [AdminController::class, 'dashboard']);
+     *   });
      */
+    public static function group(array $attributes, callable $callback): void
+    {
+        $group = new RouteGroup(self::router());
+
+        if (!empty($attributes['prefix'])) {
+            $group->prefix($attributes['prefix']);
+        }
+        if (!empty($attributes['middleware'])) {
+            $group->middleware($attributes['middleware']);
+        }
+
+        $group->group($callback);
+    }
+
+    // ── View routes ───────────────────────────────────────────────────────────
+
     private static ?\Closure $viewRenderer = null;
 
     public static function setViewRenderer(\Closure $renderer): void
@@ -207,6 +195,11 @@ class Route
         self::$viewRenderer = $renderer;
     }
 
+    /**
+     * Register a view-only route (no controller).
+     *
+     * Requires Route::setViewRenderer() to be called at bootstrap.
+     */
     public static function view(
         string $uri,
         string $viewName,
@@ -222,25 +215,109 @@ class Route
                 return ($renderer)($viewName, $viewData);
             }
 
-            // Fallback: look for a registered view() function
             if (function_exists('view')) {
                 return view($viewName, $viewData);
             }
 
             throw new \RuntimeException(
-                "No view renderer configured. Call Route::setViewRenderer() at bootstrap."
+                'No view renderer configured. Call Route::setViewRenderer() at bootstrap.'
             );
         };
 
         return self::get($uri, $action, $name);
     }
-    
+
+    // ── Model binding ─────────────────────────────────────────────────────────
+
     /**
-     * Resolve the request and return a Response — does NOT send.
-     * Preferred over dispatch() for testability.
+     * Register a custom route parameter resolver.
      *
-     * Usage (public/index.php):
-     *   Route::handle()->send();
+     * When a route parameter named $param is encountered, its raw string value
+     * is replaced with the return value of $resolver before the action is called.
+     *
+     * Usage:
+     *   Route::bind('user', fn($id) => User::find($id));
+     *
+     *   Route::get('/users/{user}', function (Request $req, ?User $user) {
+     *       // $user is already a User instance (or null if not found)
+     *   });
+     *
+     * @param string   $param    Route parameter name (without braces)
+     * @param callable $resolver Receives the raw string value, returns the resolved value
+     */
+    public static function bind(string $param, callable $resolver): void
+    {
+        self::router()->bind($param, $resolver);
+    }
+
+    /**
+     * Register a model-resolving binding using the model's find() method.
+     *
+     * Shorthand for: Route::bind($param, fn($id) => $modelClass::find($id))
+     *
+     * Usage:
+     *   Route::model('user', User::class);
+     *   Route::get('/users/{user}', [UserController::class, 'show']);
+     *   // Controller receives a ?User instance instead of raw ID string
+     *
+     * @param string $param      Route parameter name (without braces)
+     * @param string $modelClass FQCN of the model class (must have a static find() method)
+     */
+    public static function model(string $param, string $modelClass): void
+    {
+        self::router()->bind($param, fn($id) => $modelClass::find($id));
+    }
+
+    // ── Route caching ─────────────────────────────────────────────────────────
+
+    /**
+     * Save the current route table to a cache file.
+     *
+     * Only array-action routes are cached (closure routes are excluded).
+     * Call this once after all routes have been registered — typically in
+     * a `luany route:cache` CLI command (Phase 6).
+     *
+     * @param string $path Absolute path to the cache file
+     */
+    public static function cache(string $path): void
+    {
+        self::router()->saveToCache($path);
+    }
+
+    /**
+     * Load the route table from a cache file.
+     *
+     * Returns true if the cache was loaded; false if the file does not exist.
+     * On false, the caller must fall back to executing routes/http.php normally.
+     *
+     * Usage in production bootstrap:
+     *   if (!Route::loadCache(base_path('storage/cache/routes.php'))) {
+     *       require base_path('routes/http.php');
+     *       Route::cache(base_path('storage/cache/routes.php'));
+     *   }
+     *
+     * @param string $path Absolute path to the cache file
+     */
+    public static function loadCache(string $path): bool
+    {
+        return self::router()->loadFromCache($path);
+    }
+
+    /**
+     * Delete the route cache file.
+     *
+     * @param string $path Absolute path to the cache file
+     */
+    public static function clearCache(string $path): void
+    {
+        RouteCache::clear($path);
+    }
+
+    // ── Dispatch ──────────────────────────────────────────────────────────────
+
+    /**
+     * Resolve the request to a Response — does NOT send.
+     * Preferred over dispatch() for testability.
      */
     public static function handle(?Request $request = null): Response
     {
@@ -249,7 +326,6 @@ class Route
 
     /**
      * Resolve and send immediately.
-     * Convenience wrapper for handle()->send().
      */
     public static function dispatch(): void
     {

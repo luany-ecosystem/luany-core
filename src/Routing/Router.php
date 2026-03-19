@@ -5,29 +5,41 @@ namespace Luany\Core\Routing;
 use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 use Luany\Core\Middleware\Pipeline;
+use Luany\Core\Exceptions\MethodNotAllowedException;
 use Luany\Core\Exceptions\RouteNotFoundException;
 
 /**
  * Router Engine
  *
  * Handles route registration, group context (prefix + middleware),
- * named route resolution and request dispatching.
+ * named route resolution, request dispatching, model binding, and caching.
  *
  * Dispatch cycle:
- *   Request → match route → run Pipeline (middleware) → execute action → Response::send()
+ *   Request → two-pass match → resolve bindings → Pipeline (middleware) → action → Response
  *
- * Group context stack
- * ───────────────────
- * When Route::prefix() or Route::middleware() opens a group,
- * it pushes a context frame onto $groupStack.
- * Every call to addRoute() reads the stack to apply prefix + middleware.
- * When the group callback finishes, the frame is popped.
+ * Two-pass matching:
+ *   Pass 1: URI + method match → dispatch immediately
+ *   Pass 2: URI matches but method doesn't → throw MethodNotAllowedException (405)
+ *   No URI match at all → throw RouteNotFoundException (404)
+ *
+ * Model binding:
+ *   Route::bind('user', fn($id) => User::find($id));
+ *   Route::get('/users/{user}', [UserController::class, 'show']);
+ *   // $user param is resolved to a User instance before action is called
+ *
+ * Route caching:
+ *   $router->saveToCache('/path/to/routes.cache.php');
+ *   $router->loadFromCache('/path/to/routes.cache.php');
+ *   // Caches array-action routes; closure routes are excluded (not serializable)
  */
 class Router
 {
     private array $routes      = [];
     private array $namedRoutes = [];
     private array $groupStack  = [];
+
+    /** @var array<string, callable> Param → resolver mapping for model binding */
+    private array $bindings = [];
 
     // ── Group context ──────────────────────────────────────────────────────────
 
@@ -109,46 +121,155 @@ class Router
         return $uri;
     }
 
+    // ── Model binding ──────────────────────────────────────────────────────────
+
+    /**
+     * Register a route parameter resolver.
+     *
+     * Any route parameter named $param will have its raw string value replaced
+     * with the return value of $resolver before the action is called.
+     *
+     * Usage:
+     *   $router->bind('user', fn($id) => User::find($id));
+     *   // Route: GET /users/{user}
+     *   // Action receives a User instance (or null) instead of raw ID string
+     *
+     * @param string   $param    Route parameter name (without braces)
+     * @param callable $resolver Callable that receives the raw string value
+     */
+    public function bind(string $param, callable $resolver): void
+    {
+        $this->bindings[$param] = $resolver;
+    }
+
+    /**
+     * Get all registered bindings (used by RouteCache).
+     *
+     * @return array<string, callable>
+     */
+    public function getBindings(): array
+    {
+        return $this->bindings;
+    }
+
+    // ── Route caching ──────────────────────────────────────────────────────────
+
+    /**
+     * Serialize the current route table to a PHP file.
+     *
+     * Only routes with array actions ([Controller::class, 'method']) are cached.
+     * Closure actions cannot be serialized and are silently excluded.
+     *
+     * The cache file can be loaded with loadFromCache() to skip re-executing
+     * routes/http.php on every request in production.
+     *
+     * @param string $path Absolute path to the cache file (e.g. storage/cache/routes.php)
+     * @throws \RuntimeException If the file cannot be written
+     */
+    public function saveToCache(string $path): void
+    {
+        RouteCache::store($this->routes, $this->namedRoutes, $path);
+    }
+
+    /**
+     * Load a previously cached route table.
+     *
+     * Returns true if the cache was loaded successfully, false if the cache
+     * file does not exist (caller should fall back to loading routes normally).
+     *
+     * @param string $path Absolute path to the cache file
+     */
+    public function loadFromCache(string $path): bool
+    {
+        $data = RouteCache::load($path);
+
+        if ($data === null) {
+            return false;
+        }
+
+        $this->routes      = $data['routes'];
+        $this->namedRoutes = $data['named'];
+
+        return true;
+    }
+
+    /**
+     * Return the raw routes array (used by RouteCache and tests).
+     */
+    public function getRoutes(): array
+    {
+        return $this->routes;
+    }
+
+    /**
+     * Return the named routes index (used by RouteCache and tests).
+     */
+    public function getNamedRoutes(): array
+    {
+        return $this->namedRoutes;
+    }
+
     // ── Dispatch ───────────────────────────────────────────────────────────────
 
     /**
      * Resolve the request to a Response — does NOT send.
-     * Call ->send() on the returned Response at the application entry point.
      *
-     * Usage (public/index.php):
-     *   Route::handle()->send();
+     * Two-pass matching algorithm:
+     *   1. For each route: check URI pattern match, THEN check method.
+     *      → First full match (URI + method) → dispatch immediately.
+     *      → URI match but wrong method → collect allowed method.
+     *   2. After loop:
+     *      → Collected allowed methods → throw MethodNotAllowedException (405)
+     *      → No URI match at all → throw RouteNotFoundException (404)
+     *
+     * This correctly distinguishes "route not found" (404) from
+     * "route found but wrong method" (405), per RFC 7231 §6.5.5.
      */
     public function handle(?Request $request = null): Response
     {
         $request ??= Request::fromGlobals();
 
-        $method = $request->method();
-        $uri    = $request->uri();
+        $method         = $request->method();
+        $uri            = $request->uri();
+        $allowedMethods = [];
 
         foreach ($this->routes as $route) {
-            if ($route['method'] !== $method && $route['method'] !== 'ANY') {
-                continue;
-            }
-
             $pattern = $this->compilePattern($route['uri']);
 
-            if (preg_match($pattern, $uri, $matches)) {
-                $params = $this->extractParams($matches);
+            if (!preg_match($pattern, $uri, $matches)) {
+                continue; // URI does not match — skip
+            }
+
+            // URI matches — check method
+            if ($route['method'] === $method || $route['method'] === 'ANY') {
+                $params = $this->resolveBindings(
+                    $this->extractParams($matches)
+                );
 
                 return (new Pipeline())
                     ->send($request)
                     ->through($route['middleware'])
                     ->then(fn(Request $req) => $this->executeAction($route['action'], $req, $params));
             }
+
+            // URI matches but method does not — record for potential 405
+            if ($route['method'] !== 'ANY') {
+                $allowedMethods[] = $route['method'];
+            }
         }
 
-        throw new \Luany\Core\Exceptions\RouteNotFoundException($method, $uri);
+        // URI was found but method is not supported → 405
+        if (!empty($allowedMethods)) {
+            throw new MethodNotAllowedException($method, $uri, array_unique($allowedMethods));
+        }
+
+        // No route matched at all → 404
+        throw new RouteNotFoundException($method, $uri);
     }
 
     /**
      * Resolve and send immediately.
      * Convenience wrapper for handle()->send().
-     * Exceptions propagate to the caller (Kernel::handleException).
      */
     public function dispatch(?Request $request = null): void
     {
@@ -173,6 +294,24 @@ class Router
             }
         }
         return $params;
+    }
+
+    /**
+     * Apply registered model bindings to the extracted route parameters.
+     * Any param without a registered binding passes through unchanged.
+     *
+     * @param  array<string, string>  $params  Raw string params from URI
+     * @return array<string, mixed>            Params after binding resolution
+     */
+    private function resolveBindings(array $params): array
+    {
+        $resolved = [];
+        foreach ($params as $key => $value) {
+            $resolved[$key] = isset($this->bindings[$key])
+                ? ($this->bindings[$key])($value)
+                : $value;
+        }
+        return $resolved;
     }
 
     private function executeAction(mixed $action, Request $request, array $params = []): Response
@@ -221,10 +360,6 @@ class Router
             return Response::json($result);
         }
 
-        if (is_string($result) || is_null($result)) {
-            return Response::make((string) $result);
-        }
-
-        return Response::make((string) $result);
+        return Response::make((string) ($result ?? ''));
     }
 }
