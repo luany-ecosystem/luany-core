@@ -135,10 +135,6 @@ class Router
             if (preg_match($pattern, $uri, $matches)) {
                 $params = $this->extractParams($matches);
 
-                foreach ($params as $key => $value) {
-                    $_GET[$key] = $value;
-                }
-
                 return (new Pipeline())
                     ->send($request)
                     ->through($route['middleware'])

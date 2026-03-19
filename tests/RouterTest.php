@@ -254,4 +254,38 @@ class RouterTest extends TestCase
         $pattern = $method->invoke($router, '/users/{id}');
         $this->assertSame(0, preg_match($pattern, '/users/1/2'));
     }
+
+    // ── Route params must NOT leak into $_GET ─────────────────────────────
+
+    public function test_route_params_do_not_pollute_get_superglobal(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/users/{id}', function (Request $request, string $id) {
+            return Response::make("user:{$id}");
+        });
+
+        // Ensure $_GET has no 'id' key before dispatch
+        unset($_GET['id']);
+
+        $request  = $this->makeRequest('GET', '/users/42');
+        $response = $router->handle($request);
+
+        $this->assertSame('user:42', $response->getBody());
+        $this->assertArrayNotHasKey('id', $_GET, 'Route params must not be written to \$_GET');
+    }
+
+    public function test_route_params_are_passed_as_action_arguments(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/posts/{post}/comments/{comment}', function (Request $request, string $post, string $comment) {
+            return Response::make("{$post}:{$comment}");
+        });
+
+        $request  = $this->makeRequest('GET', '/posts/5/comments/12');
+        $response = $router->handle($request);
+
+        $this->assertSame('5:12', $response->getBody());
+        $this->assertArrayNotHasKey('post', $_GET);
+        $this->assertArrayNotHasKey('comment', $_GET);
+    }
 }
