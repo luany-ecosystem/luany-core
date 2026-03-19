@@ -170,9 +170,13 @@ composer install
 vendor/bin/phpunit
 ```
 
-83 tests, 107 assertions.
+85 tests, 112 assertions.
 
 ## Changelog
+
+### v0.2.4
+- `Router::handle()` — removed `$_GET` superglobal pollution from route parameters; params are now passed exclusively as controller method arguments via `executeAction()`
+- 85 tests, 112 assertions
 
 ### v0.2.3
 - `Request` — fix: `$this->cookies` assignment missing in constructor (introduced in v0.2.2)
