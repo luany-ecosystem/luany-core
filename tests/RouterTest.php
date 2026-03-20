@@ -5,6 +5,7 @@ namespace Luany\Core\Tests;
 use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 use Luany\Core\Routing\Router;
+use Luany\Core\Routing\Route;
 use PHPUnit\Framework\TestCase;
 
 class RouterTest extends TestCase

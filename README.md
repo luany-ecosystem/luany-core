@@ -418,7 +418,7 @@ public function render(\Throwable $e): Response
 
 **Tests added:** `MethodNotAllowedTest` (12), `CorsMiddlewareTest` (16), `RateLimiterTest` (15), `FileRateLimiterTest` (14), `RateLimitMiddlewareTest` (9), `RouteCacheTest` (15), `RouteModelBindingTest` (10)
 
-**Total: 176 tests.**
+**Total: OK (180 tests, 261 assertions)**
 
 ---
 
