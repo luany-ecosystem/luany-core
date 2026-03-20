@@ -61,6 +61,7 @@ class Route
      *
      * @return array<int, array{method: string, uri: string, action: mixed, middleware: array, name: ?string}>
      */
+    /** @return array<int, array<string, mixed>> */
     public static function getRoutes(): array
     {
         return self::router()->getRoutes();
@@ -135,6 +136,7 @@ class Route
      *   ['only'   => ['index', 'show']]      — include only these actions
      *   ['except' => ['create', 'edit']]     — exclude these actions
      */
+    /** @param array<string, mixed> $options */
     public static function resource(string $name, string $controller, array $options = []): void
     {
         $base = '/' . trim($name, '/');
@@ -172,6 +174,7 @@ class Route
      *
      * Generates: index, store, show, update, destroy.
      */
+    /** @param array<string, mixed> $options */
     public static function apiResource(string $name, string $controller, array $options = []): void
     {
         $options['except'] = array_merge($options['except'] ?? [], ['create', 'edit']);
@@ -198,6 +201,7 @@ class Route
      *       Route::get('/dashboard', [AdminController::class, 'dashboard']);
      *   });
      */
+    /** @param array<string, mixed> $attributes */
     public static function group(array $attributes, callable $callback): void
     {
         $group = new RouteGroup(self::router());
@@ -229,6 +233,7 @@ class Route
     public static function view(
         string $uri,
         string $viewName,
+        /** @param array<string, mixed> $data */
         array $data = [],
         ?string $name = null
     ): RouteRegistrar {

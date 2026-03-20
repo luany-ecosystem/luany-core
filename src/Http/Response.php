@@ -20,9 +20,11 @@ namespace Luany\Core\Http;
 class Response
 {
     private int    $statusCode = 200;
+    /** @var array<string, string> */
     private array  $headers    = [];
     private string $body       = '';
 
+    /** @var array<int, string> */
     private static array $statusTexts = [
         200 => 'OK',
         201 => 'Created',
@@ -39,6 +41,7 @@ class Response
         500 => 'Internal Server Error',
     ];
 
+    /** @param array<string, string> $headers */
     public function __construct(string $body = '', int $status = 200, array $headers = [])
     {
         $this->body       = $body;
@@ -48,11 +51,13 @@ class Response
 
     // ── Factories ─────────────────────────────────────────────────────────────
 
+    /** @param array<string, string> $headers */
     public static function make(string $body = '', int $status = 200, array $headers = []): self
     {
         return new self($body, $status, $headers);
     }
 
+    /** @param array<string, string> $headers */
     public static function json(mixed $data, int $status = 200, array $headers = []): self
     {
         $headers['Content-Type'] = 'application/json; charset=UTF-8';
@@ -104,6 +109,7 @@ class Response
         return $this;
     }
 
+    /** @param array<string, string> $headers */
     public function withHeaders(array $headers): self
     {
         foreach ($headers as $name => $value) {
@@ -124,6 +130,7 @@ class Response
         return $this->body;
     }
 
+    /** @return array<string, string> */
     public function getHeaders(): array
     {
         return $this->headers;

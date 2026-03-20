@@ -363,10 +363,10 @@ interface RateLimiterInterface
 
 ## 7. Exceptions
 
-| Exception | Code | When thrown |
-|---|---|---|
-| `RouteNotFoundException` | 404 | No route URI matches the request |
-| `MethodNotAllowedException` | 405 | URI matches a route but the HTTP method does not |
+| Exception                   | Code | When thrown                                      |
+| --------------------------- | ---- | ------------------------------------------------ |
+| `RouteNotFoundException`    | 404  | No route URI matches the request                 |
+| `MethodNotAllowedException` | 405  | URI matches a route but the HTTP method does not |
 
 ```php
 use Luany\Core\Exceptions\MethodNotAllowedException;
@@ -396,17 +396,20 @@ public function render(\Throwable $e): Response
 ### v1.0.0 — Phase 4: Core Hardening
 
 **New — `src/Routing/RouteCache.php`**
+
 - `store()` — serialize route table to PHP file (closure routes excluded)
 - `load()` — load cached route table
 - `clear()` — delete cache file
 
 **Modified — `src/Routing/Router.php`**
+
 - Two-pass dispatch: URI match + wrong method → `MethodNotAllowedException` (405) instead of 404
 - `bind(string $param, callable $resolver)` — register route model binding
 - `getBindings()`, `getRoutes()`, `getNamedRoutes()` — expose state for cache and testing
 - `saveToCache()` / `loadFromCache()` — route cache integration
 
 **Modified — `src/Routing/Route.php`**
+
 - `bind()`, `model()` — model binding API
 - `cache()`, `loadCache()`, `clearCache()` — cache API
 - `group(array $attributes, callable $callback)` — combined prefix+middleware shorthand

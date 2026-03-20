@@ -16,12 +16,16 @@ namespace Luany\Core\Routing;
  */
 class RouteRegistrar
 {
-    /** @var array Reference to the route entry inside Router::$routes */
+    /** @var array<string, mixed> Reference to the route entry inside Router::$routes */
     private array $route;
 
-    /** @var array Reference to Router::$namedRoutes */
+    /** @var array<string, string> Reference to Router::$namedRoutes */
     private array $namedRoutes;
 
+    /**
+     * @param array<string, mixed>  $route
+     * @param array<string, string> $namedRoutes
+     */
     public function __construct(array &$route, array &$namedRoutes)
     {
         $this->route       = &$route;
@@ -41,7 +45,8 @@ class RouteRegistrar
     /**
      * Add one or more middleware to this route.
      */
-    public function middleware($middleware): self
+    /** @param class-string|array<int, class-string|object>|object $middleware */
+    public function middleware(mixed $middleware): self
     {
         $list = is_array($middleware) ? $middleware : [$middleware];
         foreach ($list as $m) {

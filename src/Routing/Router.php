@@ -34,15 +34,19 @@ use Luany\Core\Exceptions\RouteNotFoundException;
  */
 class Router
 {
+    /** @var array<int, array<string, mixed>> */
     private array $routes      = [];
+    /** @var array<string, string> */
     private array $namedRoutes = [];
+    /** @var array<int, array<string, mixed>> */
     private array $groupStack  = [];
 
-    /** @var array<string, callable> Param → resolver mapping for model binding */
+    /** @var array<string, callable(string): mixed> Param → resolver mapping for model binding */
     private array $bindings = [];
 
     // ── Group context ──────────────────────────────────────────────────────────
 
+    /** @param array<string, mixed> $context */
     public function pushGroupContext(array $context): void
     {
         $this->groupStack[] = $context;
@@ -64,6 +68,7 @@ class Router
         return $prefix;
     }
 
+    /** @return array<int, class-string|object> */
     private function getCurrentMiddleware(): array
     {
         $middleware = [];
@@ -82,7 +87,7 @@ class Router
         $prefix = $this->getCurrentPrefix();
         $uri    = $prefix . '/' . ltrim($uri, '/');
         $uri    = '/' . trim($uri, '/');
-        if ($uri === '') $uri = '/';
+        if ($uri === '') $uri = '/'; // @phpstan-ignore identical.alwaysFalse
 
         $middleware = $this->getCurrentMiddleware();
 
@@ -106,6 +111,7 @@ class Router
 
     // ── Named routes ──────────────────────────────────────────────────────────
 
+    /** @param array<string, mixed> $params */
     public function getNamedRoute(string $name, array $params = []): ?string
     {
         if (!isset($this->namedRoutes[$name])) {
@@ -196,6 +202,7 @@ class Router
     /**
      * Return the raw routes array (used by RouteCache and tests).
      */
+    /** @return array<int, array<string, mixed>> */
     public function getRoutes(): array
     {
         return $this->routes;
@@ -204,6 +211,7 @@ class Router
     /**
      * Return the named routes index (used by RouteCache and tests).
      */
+    /** @return array<string, string> */
     public function getNamedRoutes(): array
     {
         return $this->namedRoutes;
@@ -253,7 +261,7 @@ class Router
             }
 
             // URI matches but method does not — record for potential 405
-            if ($route['method'] !== 'ANY') {
+            if ((string) $route['method'] !== 'ANY') {
                 $allowedMethods[] = $route['method'];
             }
         }
@@ -285,6 +293,10 @@ class Router
         return '#^' . $pattern . '$#';
     }
 
+    /**
+     * @param array<int|string, string> $matches
+     * @return array<string, string>
+     */
     private function extractParams(array $matches): array
     {
         $params = [];
@@ -314,6 +326,7 @@ class Router
         return $resolved;
     }
 
+    /** @param array<string, mixed> $params */
     private function executeAction(mixed $action, Request $request, array $params = []): Response
     {
         if (is_callable($action)) {

@@ -1,0 +1,20 @@
+parameters:
+    level: 6
+    paths:
+        - src
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # Route::view() $data — @param annotation is correct in the docblock.
+        # PHPStan 2.x has a known issue resolving @param on array<> for named
+        # parameters when the method has multiple non-array parameters before it.
+        - '#Method Luany\\Core\\Routing\\Route::view\(\) has parameter \$data with no value type#'
+
+        # RouteCache docblock contains a PHP code example. The @unlink() in the
+        # example is PHP error-suppression syntax, not a PHPDoc annotation.
+        # PHPStan 2.x incorrectly treats it as an annotation tag.
+        - '#PHPDoc tag @unlink has invalid value#'
+
+        # RouteRegistrar::$namedRoutes is written via PHP pass-by-reference (&$ref)
+        # and read externally through that reference by Router. PHPStan cannot
+        # trace reads through PHP references — this is a known PHPStan limitation.
+        - '#Property Luany\\Core\\Routing\\RouteRegistrar::\$namedRoutes is never read, only written#'

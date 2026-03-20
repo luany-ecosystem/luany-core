@@ -26,6 +26,7 @@ namespace Luany\Core\Routing;
 class RouteGroup
 {
     private Router $router;
+    /** @var array<int, class-string|object> */
     private array  $middleware = [];
     private string $prefix     = '';
 
@@ -34,7 +35,8 @@ class RouteGroup
         $this->router = $router;
     }
 
-    public function middleware($middleware): self
+    /** @param class-string|array<int, class-string|object>|object $middleware */
+    public function middleware(mixed $middleware): self
     {
         $this->middleware = is_array($middleware) ? $middleware : [$middleware];
         return $this;

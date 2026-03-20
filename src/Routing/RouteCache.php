@@ -38,6 +38,10 @@ class RouteCache
      *
      * @throws \RuntimeException If the directory cannot be created or the file cannot be written
      */
+    /**
+     * @param array<int, array<string, mixed>> $routes
+     * @param array<string, string>             $namedRoutes
+     */
     public static function store(array $routes, array $namedRoutes, string $path): void
     {
         $dir = dirname($path);
@@ -67,6 +71,7 @@ class RouteCache
      * @param  string  $path  Absolute path to the cache file
      * @return array{routes: array, named: array}|null
      */
+    /** @return array{routes: array<int, array<string, mixed>>, named: array<string, string>}|null */
     public static function load(string $path): ?array
     {
         if (!file_exists($path) || !is_readable($path)) {

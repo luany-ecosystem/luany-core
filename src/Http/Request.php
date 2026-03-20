@@ -15,13 +15,27 @@ class Request
 {
     private string $method;
     private string $uri;
-    private array  $query;
-    private array  $body;
-    private array  $files;
-    private array  $headers;
-    private array  $server;
-    private array  $cookies;
+    /** @var array<string, mixed> */
+    private array $query;
+    /** @var array<string, mixed> */
+    private array $body;
+    /** @var array<string, mixed> */
+    private array $files;
+    /** @var array<string, string> */
+    private array $headers;
+    /** @var array<string, mixed> */
+    private array $server;
+    /** @var array<string, mixed> */
+    private array $cookies;
 
+    /**
+     * @param array<string, mixed>  $query
+     * @param array<string, mixed>  $body
+     * @param array<string, mixed>  $files
+     * @param array<string, string> $headers
+     * @param array<string, mixed>  $server
+     * @param array<string, mixed>  $cookies
+     */
     public function __construct(
         string $method,
         string $uri,
@@ -68,7 +82,7 @@ class Request
         }
 
         $uri = '/' . trim($uri, '/');
-        if ($uri === '') $uri = '/';
+        if ($uri === '') $uri = '/'; // @phpstan-ignore identical.alwaysFalse
 
         // Parse JSON body if Content-Type is application/json
         $body = $_POST;
@@ -151,6 +165,7 @@ class Request
     /**
      * Get all input (query + body merged).
      */
+    /** @return array<string, mixed> */
     public function all(): array
     {
         return array_merge($this->query, $this->body);
@@ -166,17 +181,26 @@ class Request
      *
      * For both body + query merged, use all().
      */
+    /** @return array<string, mixed> */
     public function body(): array
     {
         return $this->body;
     }
 
+    /**
+     * @param array<int, string> $keys
+     * @return array<string, mixed>
+     */
     public function only(array $keys): array
     {
         $all = $this->all();
         return array_intersect_key($all, array_flip($keys));
     }
 
+    /**
+     * @param array<int, string> $keys
+     * @return array<string, mixed>
+     */
     public function except(array $keys): array
     {
         $all = $this->all();
@@ -196,6 +220,7 @@ class Request
 
     // ── Files ─────────────────────────────────────────────────────────────────
 
+    /** @return array<string, mixed>|null */
     public function file(string $key): ?array
     {
         return $this->files[$key] ?? null;
@@ -220,6 +245,7 @@ class Request
         return $default;
     }
 
+    /** @return array<string, string> */
     public function headers(): array
     {
         return $this->headers;
@@ -265,6 +291,7 @@ class Request
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /** @return array<string, string> */
     private static function parseHeaders(): array
     {
         $headers = [];
