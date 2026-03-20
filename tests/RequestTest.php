@@ -1,4 +1,25 @@
 <?php
+    public function test_body_returns_body_fields_only(): void
+    {
+        $req = new Request('POST', '/test',
+            query: ['page' => '2'],
+            body:  ['name' => 'Alice', 'email' => 'alice@example.com']
+        );
+        $body = $req->body();
+        $this->assertSame(['name' => 'Alice', 'email' => 'alice@example.com'], $body);
+        $this->assertArrayNotHasKey('page', $body);
+    }
+
+    public function test_body_differs_from_all(): void
+    {
+        $req = new Request('POST', '/test',
+            query: ['sort' => 'asc'],
+            body:  ['title' => 'Hello']
+        );
+        $this->assertArrayHasKey('sort', \$req->all());
+        $this->assertArrayNotHasKey('sort', \$req->body());
+    }
+
 
 namespace Luany\Core\Tests;
 

@@ -41,6 +41,32 @@ class Route
     }
 
     /**
+     * Alias for router() — returns the singleton Router instance.
+     *
+     * Provided for readability in application code:
+     *   Route::getRouter()->getNamedRoute('users.index')
+     */
+    public static function getRouter(): Router
+    {
+        return self::router();
+    }
+
+    /**
+     * Get all registered routes from the singleton Router.
+     *
+     * Returns the raw routes array — each entry has:
+     *   'method', 'uri', 'action', 'middleware', 'name'
+     *
+     * Used by luany route:list to display registered routes.
+     *
+     * @return array<int, array{method: string, uri: string, action: mixed, middleware: array, name: ?string}>
+     */
+    public static function getRoutes(): array
+    {
+        return self::router()->getRoutes();
+    }
+
+    /**
      * Replace the singleton Router (useful for testing).
      */
     public static function setRouter(Router $router): void

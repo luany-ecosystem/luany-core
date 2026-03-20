@@ -156,6 +156,21 @@ class Request
         return array_merge($this->query, $this->body);
     }
 
+    /**
+     * Get the parsed request body (POST fields or decoded JSON).
+     *
+     * Alias for all() restricted to body fields only — does not include
+     * query-string values. Preferred when validating form/JSON submissions:
+     *
+     *   $data = validate($request->body(), ['name' => 'required|string']);
+     *
+     * For both body + query merged, use all().
+     */
+    public function body(): array
+    {
+        return $this->body;
+    }
+
     public function only(array $keys): array
     {
         $all = $this->all();
