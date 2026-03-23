@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — next/v1
+## [1.0.0] — 2026-03-23
 
 ### Added
 - `Request::body(): array` — returns parsed request body fields only (POST or decoded JSON). Distinct from `all()` which merges body + query string. Used by `validate()` helper and all generated controllers.
