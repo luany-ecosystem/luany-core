@@ -5,6 +5,7 @@ namespace Luany\Core\Tests;
 use Luany\Core\Http\Request;
 use Luany\Core\Http\Response;
 use Luany\Core\Routing\Router;
+use Luany\Core\Routing\Route;
 use PHPUnit\Framework\TestCase;
 
 class RouterTest extends TestCase
@@ -287,5 +288,25 @@ class RouterTest extends TestCase
         $this->assertSame('5:12', $response->getBody());
         $this->assertArrayNotHasKey('post', $_GET);
         $this->assertArrayNotHasKey('comment', $_GET);
+    }
+
+    public function test_get_router_alias_returns_same_instance(): void
+    {
+        $r1 = Route::router();
+        $r2 = Route::getRouter();
+        $this->assertSame($r1, $r2, 'getRouter() must return the same singleton as router()');
+    }
+
+    public function test_get_routes_returns_all_registered_routes(): void
+    {
+        Route::reset();
+        Route::get('/foo', fn($r) => Response::make('foo'));
+        Route::post('/bar', fn($r) => Response::make('bar'));
+
+        $routes = Route::getRoutes();
+        $this->assertCount(2, $routes);
+        $uris = array_column($routes, 'uri');
+        $this->assertContains('/foo', $uris);
+        $this->assertContains('/bar', $uris);
     }
 }

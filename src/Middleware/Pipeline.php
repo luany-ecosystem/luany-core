@@ -22,6 +22,7 @@ use Luany\Core\Http\Response;
 class Pipeline
 {
     private Request $request;
+    /** @var array<int, class-string<MiddlewareInterface>|MiddlewareInterface> */
     private array   $middleware = [];
 
     public function send(Request $request): self
@@ -30,6 +31,7 @@ class Pipeline
         return $this;
     }
 
+    /** @param array<int, class-string<MiddlewareInterface>|MiddlewareInterface> $middleware */
     public function through(array $middleware): self
     {
         $this->middleware = $middleware;
@@ -47,7 +49,8 @@ class Pipeline
         return $pipeline($this->request);
     }
 
-    private function resolve($middleware): MiddlewareInterface
+    /** @param class-string<MiddlewareInterface>|MiddlewareInterface $middleware */
+    private function resolve(mixed $middleware): MiddlewareInterface
     {
         if (is_string($middleware)) {
             if (!class_exists($middleware)) {

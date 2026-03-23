@@ -1,150 +1,250 @@
-# luany-core
+# luany/core
 
-> HTTP Request/Response, middleware pipeline and router for the Luany ecosystem.
+**HTTP Request/Response, Router, Middleware Pipeline, CORS, Rate Limiting, and Route Caching for the Luany ecosystem.**
 
-The runtime foundation of the Luany framework — controls the full HTTP lifecycle from request to response.
+**Version**: v1.0.0 &nbsp;|&nbsp; **PHP**: >= 8.2 &nbsp;|&nbsp; **License**: MIT
+**Author**: António Ambrósio Ngola &nbsp;|&nbsp; **Org**: [luany-ecosystem](https://github.com/luany-ecosystem)
 
-## Request → Resolution → Execution → Response
+---
 
-```
-Request::fromGlobals()
-    └─ Router::dispatch()
-        └─ Pipeline (middleware chain)
-            └─ Controller action
-                └─ Response::send()
-```
+## Table of Contents
 
-## Installation
+1. [Installation](#1-installation)
+2. [Request](#2-request)
+3. [Response](#3-response)
+4. [Router & Route Facade](#4-router--route-facade)
+5. [Middleware](#5-middleware)
+6. [Rate Limiters](#6-rate-limiters)
+7. [Exceptions](#7-exceptions)
+8. [Changelog](#8-changelog)
+
+---
+
+## 1. Installation
 
 ```bash
 composer require luany/core
 ```
 
-## Router
+---
+
+## 2. Request
+
+**Class**: `Luany\Core\Http\Request`
+
+```php
+$request = Request::fromGlobals();
+
+$request->method();                          // 'GET'
+$request->uri();                             // '/users/42'
+$request->input('name', 'default');          // body or query value
+$request->query('page');                     // query string only
+$request->post('email');                     // body only
+$request->all();                             // merged query + body$request->body();                            // body only$request->only(['name', 'email']);
+$request->except(['password']);
+$request->has('name');                       // bool
+$request->filled('name');                    // bool — exists and non-empty
+$request->file('avatar');                    // ?array
+$request->hasFile('avatar');                 // bool
+$request->header('Authorization');           // case-insensitive
+$request->server('REMOTE_ADDR');
+$request->cookie('app_locale', 'en');
+$request->hasCookie('app_locale');
+$request->ip();                              // X-Forwarded-For → REMOTE_ADDR
+$request->userAgent();
+$request->url();                             // full URL with scheme+host
+$request->isGet(); $request->isPost();       // method shortcuts
+$request->isMethod('DELETE');
+$request->isAjax();
+$request->expectsJson();
+```
+
+**Method override**: HTML forms may include a hidden `_method` field (`PUT`, `PATCH`, `DELETE`). `fromGlobals()` handles this automatically.
+
+**JSON body**: If `Content-Type: application/json`, the body is parsed from `php://input` automatically.
+
+**Body-only helper**: `Request::body()` returns only parsed body fields (POST/JSON), unlike `all()` which merges body + query.
+
+---
+
+## 3. Response
+
+**Class**: `Luany\Core\Http\Response`
+
+```php
+// Factories
+Response::make('<h1>Hello</h1>', 200);
+Response::json(['user' => $user]);
+Response::json(['error' => 'Not found'], 404);
+Response::redirect('/dashboard');
+Response::redirect('/permanent', 301);
+Response::notFound();
+Response::unauthorized();
+Response::forbidden();
+Response::serverError();
+
+// Fluent building
+(new Response())
+    ->status(422)
+    ->body(json_encode(['errors' => $errors]))
+    ->header('Content-Type', 'application/json')
+    ->withHeaders(['X-Request-Id' => $id]);
+
+// Inspection
+$response->getStatusCode();  // int
+$response->getBody();        // string
+$response->getHeaders();     // array
+$response->isRedirect();     // bool (3xx)
+$response->isSuccessful();   // bool (2xx)
+
+// Send to client (call once at end of lifecycle)
+$response->send();
+```
+
+---
+
+## 4. Router & Route Facade
+
+**Classes**: `Luany\Core\Routing\Router`, `Luany\Core\Routing\Route`
+
+`Route` is a static facade over the singleton `Router` instance.
+
+### Basic Registration
 
 ```php
 use Luany\Core\Routing\Route;
 
-Route::get('/', [HomeController::class, 'index']);
-Route::post('/users', [UserController::class, 'store']);
-Route::put('/users/{id}', [UserController::class, 'update']);
-Route::delete('/users/{id}', [UserController::class, 'destroy']);
+Route::get('/users',       [UserController::class, 'index']);
+Route::post('/users',      [UserController::class, 'store']);
+Route::put('/users/{id}',  [UserController::class, 'update']);
+Route::patch('/users/{id}',[UserController::class, 'update']);
+Route::delete('/users/{id}',[UserController::class, 'destroy']);
+Route::any('/ping', fn() => Response::make('pong'));
 
-// Named routes
+// Closure actions
+Route::get('/hello', function (Request $request) {
+    return Response::make('Hello!');
+});
+```
+
+Controllers may return `Response`, `string`, or `array` (auto-JSON).
+
+### Route Parameters
+
+```php
+Route::get('/users/{id}', [UserController::class, 'show']);
+// Controller: public function show(Request $request, string $id): Response
+
+Route::get('/posts/{post}/comments/{comment}', [CommentController::class, 'show']);
+// Parameters passed in order of appearance. Never written to $_GET.
+```
+
+### Named Routes
+
+```php
 Route::get('/users/{id}', [UserController::class, 'show'])->name('users.show');
-$uri = Route::router()->getNamedRoute('users.show', ['id' => 42]); // /users/42
 
-// Groups
-Route::prefix('admin')->middleware(MyCustomMiddleware::class)->group(function () {
-    Route::get('/dashboard', [AdminController::class, 'index']);
-    Route::get('/users',     [AdminController::class, 'users']);
+$url = Route::router()->getNamedRoute('users.show', ['id' => 42]);
+// → '/users/42'
+```
+
+### Route Groups
+
+```php
+// Prefix
+Route::prefix('/admin')->group(function () {
+    Route::get('/dashboard', [AdminController::class, 'dashboard']); // → /admin/dashboard
 });
 
-// Resource routes (RESTful CRUD)
-Route::resource('posts', PostController::class);
-Route::apiResource('posts', PostController::class); // without create/edit
+// Middleware
+Route::middleware(AuthMiddleware::class)->group(function () {
+    Route::get('/profile', [ProfileController::class, 'show']);
+});
 
-// View routes
+// Combined shorthand
+Route::group(['prefix' => '/api/v1', 'middleware' => [AuthMiddleware::class]], function () {
+    Route::get('/users', [UserController::class, 'index']);
+    Route::post('/users', [UserController::class, 'store']);
+});
+
+// Nested
+Route::prefix('/api')->group(function () {
+    Route::prefix('/v1')->group(function () {
+        Route::get('/status', fn() => Response::json(['ok' => true]));
+        // → /api/v1/status
+    });
+});
+```
+
+### Resource Routes
+
+```php
+Route::resource('products', ProductController::class);
+// GET    /products           → index
+// GET    /products/create    → create
+// POST   /products           → store
+// GET    /products/{id}      → show
+// GET    /products/{id}/edit → edit
+// PUT    /products/{id}      → update
+// PATCH  /products/{id}      → update
+// DELETE /products/{id}      → destroy
+
+Route::apiResource('posts', PostController::class);
+// Same but without create/edit
+
+Route::resource('users', UserController::class, ['only' => ['index', 'show']]);
+Route::resource('users', UserController::class, ['except' => ['create', 'edit']]);
+```
+
+### View Routes
+
+```php
 Route::setViewRenderer(fn($view, $data) => $engine->render($view, $data));
+
 Route::view('/welcome', 'pages.welcome');
-
-// Handle (returns Response — preferred for testability)
-$response = Route::handle();
-$response->send();
-
-// Or dispatch (convenience wrapper)
-Route::dispatch();
+Route::view('/about', 'pages.about', ['title' => 'About Us']);
 ```
 
-## Request
+### Model Binding
+
+Automatically resolve route parameters to model instances before the action is called.
 
 ```php
-use Luany\Core\Http\Request;
+// Custom resolver
+Route::bind('user', fn($id) => User::find($id));
 
-public function store(Request $request): Response
-{
-    $name  = $request->input('name');
-    $email = $request->post('email');
-    $page  = $request->query('page', 1);
+// Shorthand — uses the model's static find() method
+Route::model('post', Post::class);
 
-    $data = $request->only(['name', 'email']);
-    $data = $request->except(['_token']);
-    $all  = $request->all();
-
-    $request->has('name');       // bool
-    $request->filled('name');    // bool — false if empty string
-    $request->isPost();          // bool
-    $request->isAjax();          // bool
-    $request->expectsJson();     // bool
-    $request->ip();              // string
-    $request->cookie('app_locale');          // string|null
-    $request->cookie('app_locale', 'en');   // with default
-    $request->hasCookie('app_locale');      // bool
-}
-
-// Create from globals (called automatically by Router::dispatch)
-$request = Request::fromGlobals();
-```
-
-## Response
-
-```php
-use Luany\Core\Http\Response;
-
-return Response::make('<h1>Hello</h1>');
-return Response::make('<h1>Created</h1>', 201);
-return Response::json(['status' => 'ok']);
-return Response::json(['error' => 'Not found'], 404);
-return Response::redirect('/dashboard');
-return Response::redirect('/new-url', 301);
-return Response::notFound();
-return Response::unauthorized();
-return Response::forbidden();
-return Response::serverError();
-
-return (new Response())
-    ->status(200)
-    ->header('X-Custom', 'value')
-    ->body('<p>Content</p>');
-```
-
-Controllers can return `Response`, `string`, or `array` — the router normalises automatically.
-
-## Middleware
-
-Implement `MiddlewareInterface` to create middleware:
-
-```php
-use Luany\Core\Middleware\MiddlewareInterface;
-use Luany\Core\Http\Request;
-use Luany\Core\Http\Response;
-
-class MyCustomMiddleware implements MiddlewareInterface
-{
-    public function handle(Request $request, callable $next): Response
-    {
-        // Before action
-        $response = $next($request);
-        // After action
-        return $response;
+// Action receives a resolved instance (or null if not found)
+Route::get('/users/{user}', function (Request $request, ?User $user) {
+    if ($user === null) {
+        return Response::notFound();
     }
-}
+    return Response::json($user->toArray());
+});
 ```
 
-Short-circuit (stop the pipeline):
+Unbound parameters pass through as raw strings. Bindings match by parameter name.
+
+### Route Caching
+
+Serializes the compiled route table to a PHP file. Only array-action routes (`[Controller::class, 'method']`) are cached — closure routes cannot be serialized.
 
 ```php
-class MyCustomMiddleware implements MiddlewareInterface
-{
-    public function handle(Request $request, callable $next): Response
-    {
-        if (/* condition */) {
-            return Response::redirect('/login');
-        }
-        return $next($request);
-    }
+// In production bootstrap:
+if (!Route::loadCache(base_path('storage/cache/routes.php'))) {
+    require base_path('routes/http.php');
+    Route::cache(base_path('storage/cache/routes.php'));
 }
+
+// Invalidate after deployment:
+Route::clearCache(base_path('storage/cache/routes.php'));
 ```
+
+---
+
+## 5. Middleware
 
 ### Pipeline
 
@@ -153,60 +253,179 @@ use Luany\Core\Middleware\Pipeline;
 
 $response = (new Pipeline())
     ->send($request)
-    ->through([MyCustomMiddleware::class])
+    ->through([AuthMiddleware::class, LogMiddleware::class])
     ->then(fn(Request $req) => $controller->action($req));
-
-$response->send();
 ```
 
-## Requirements
+Implementing middleware:
 
-- PHP 8.1+
+```php
+use Luany\Core\Middleware\MiddlewareInterface;
 
-## Testing
-
-```bash
-composer install
-vendor/bin/phpunit
+class AuthMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): Response
+    {
+        if (!isset($_SESSION['user_id'])) {
+            return Response::redirect('/login');
+        }
+        return $next($request);
+    }
+}
 ```
 
-85 tests, 112 assertions.
+### CorsMiddleware
 
-## Changelog
+```php
+use Luany\Core\Middleware\CorsMiddleware;
 
-### v0.2.4
-- `Router::handle()` — removed `$_GET` superglobal pollution from route parameters; params are now passed exclusively as controller method arguments via `executeAction()`
-- 85 tests, 112 assertions
+// Default — allow all origins (public API, no credentials)
+$cors = new CorsMiddleware();
 
-### v0.2.3
-- `Request` — fix: `$this->cookies` assignment missing in constructor (introduced in v0.2.2)
-- 83 tests, 107 assertions
+// Production — specific origins with credentials
+$cors = new CorsMiddleware(
+    allowedOrigins:   ['https://app.example.com', '*.staging.example.com'],
+    allowedMethods:   ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders:   ['Content-Type', 'Authorization'],
+    exposedHeaders:   ['X-Total-Count'],
+    allowCredentials: true,
+    maxAge:           3600,
+);
+```
 
-### v0.2.2
-- `Request` — `cookie()` and `hasCookie()` added — `$_COOKIE` now encapsulated in `fromGlobals()`
-- ⚠️ Buggy release — constructor assignment missing, use v0.2.3
-- 83 tests, 107 assertions
+Behaviour: `OPTIONS` requests short-circuit with 204. Wildcard `['*']` + credentials echoes the actual `Origin`. Disallowed origins get no CORS headers. Subdomain wildcards (`*.example.com`) are supported.
 
-### v0.2.1
-- `Router` — throws `RouteNotFoundException` instead of returning a plain 404 response
-- `RouteNotFoundException` — new exception in `Luany\Core\Exceptions` with HTTP code 404
-- Tests updated: `test_handle_throws_for_unknown_route`, `test_route_not_found_exception_has_404_code`
-- 83 tests, 107 assertions
+### RateLimitMiddleware
 
-### v0.2.0
-- `Request` — full HTTP request encapsulation (`fromGlobals`, JSON body, method override, `input`, `only`, `except`, `has`, `filled`, `isAjax`, `expectsJson`)
-- `Response` — status, headers, body, `json()`, `redirect()`, error factories, `send()`
-- `MiddlewareInterface` — contract `handle(Request, callable): Response`
-- `Pipeline` — middleware chain with correct wrapping order and short-circuit support
-- `Router` — dispatch cycle uses `Request`/`Response`/`Pipeline`; `handle()` returns Response, `dispatch()` sends
-- `Route::view()` — injectable renderer via `Route::setViewRenderer()`, no external helpers
-- Fixed: `RouteGroup` and `RouteRegistrar` namespace (`Core\Routing` → `Luany\Core\Routing`)
-- 77 unit tests — `RequestTest`, `ResponseTest`, `RouterTest`, `PipelineTest`
+```php
+use Luany\Core\Middleware\RateLimitMiddleware;
+use Luany\Core\RateLimit\FileRateLimiter;
 
-### v0.1.0
-- Initial release — `Router`, `RouteGroup`, `RouteRegistrar`, `Route` facade
-- Resource routes, named routes, group prefix/middleware
+$limiter = new FileRateLimiter(base_path('storage/rate-limits'));
 
-## License
+// On a route
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware(new RateLimitMiddleware($limiter, maxAttempts: 5, decaySeconds: 60));
+```
 
-MIT — see [LICENSE](LICENSE) for details.
+Exceeding the limit returns `429` with `X-RateLimit-Limit`, `X-RateLimit-Remaining: 0`, and `Retry-After` headers. Allowed requests receive `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
+
+Override `keyFor(Request $request): string` to key by user ID instead of IP.
+
+---
+
+## 6. Rate Limiters
+
+### InMemoryRateLimiter
+
+Per-process static store. For tests and development only.
+
+```php
+use Luany\Core\RateLimit\InMemoryRateLimiter;
+
+$limiter = new InMemoryRateLimiter();
+$limiter->attempt('key', 5, 60);           // bool
+$limiter->remaining('key', 5);             // int
+$limiter->tooManyAttempts('key', 5);       // bool
+$limiter->availableAt('key');              // int (Unix timestamp)
+$limiter->reset('key');                    // void
+InMemoryRateLimiter::flush();             // clear all keys (use in test tearDown)
+```
+
+### FileRateLimiter
+
+JSON file-backed store. Safe for single-server production. Uses `flock()` for concurrency safety. Keys are SHA-256 hashed — no path traversal possible.
+
+```php
+use Luany\Core\RateLimit\FileRateLimiter;
+
+$limiter = new FileRateLimiter(base_path('storage/rate-limits'));
+$limiter->attempt('api:ip:127.0.0.1', 60, 60);
+$limiter->reset('api:ip:127.0.0.1');
+$limiter->flush(); // removes all rl_*.json files
+```
+
+### Custom RateLimiter
+
+Implement `Luany\Core\RateLimit\RateLimiterInterface`:
+
+```php
+interface RateLimiterInterface
+{
+    public function attempt(string $key, int $maxAttempts, int $decaySeconds): bool;
+    public function remaining(string $key, int $maxAttempts): int;
+    public function availableAt(string $key): int;
+    public function tooManyAttempts(string $key, int $maxAttempts): bool;
+    public function reset(string $key): void;
+}
+```
+
+---
+
+## 7. Exceptions
+
+| Exception                   | Code | When thrown                                      |
+| --------------------------- | ---- | ------------------------------------------------ |
+| `RouteNotFoundException`    | 404  | No route URI matches the request                 |
+| `MethodNotAllowedException` | 405  | URI matches a route but the HTTP method does not |
+
+```php
+use Luany\Core\Exceptions\MethodNotAllowedException;
+use Luany\Core\Exceptions\RouteNotFoundException;
+
+// In your application's Exception Handler:
+public function render(\Throwable $e): Response
+{
+    if ($e instanceof MethodNotAllowedException) {
+        return Response::make('Method Not Allowed', 405)
+            ->header('Allow', $e->getAllowHeaderValue());
+    }
+    if ($e instanceof RouteNotFoundException) {
+        return Response::notFound();
+    }
+    return parent::render($e);
+}
+```
+
+`MethodNotAllowedException::getAllowedMethods(): string[]` — e.g. `['GET', 'POST']`
+`MethodNotAllowedException::getAllowHeaderValue(): string` — e.g. `'GET, POST'`
+
+---
+
+## 8. Changelog
+
+### v1.0.0 — Phase 4: Core Hardening
+
+**New — `src/Routing/RouteCache.php`**
+
+- `store()` — serialize route table to PHP file (closure routes excluded)
+- `load()` — load cached route table
+- `clear()` — delete cache file
+
+**Modified — `src/Routing/Router.php`**
+
+- Two-pass dispatch: URI match + wrong method → `MethodNotAllowedException` (405) instead of 404
+- `bind(string $param, callable $resolver)` — register route model binding
+- `getBindings()`, `getRoutes()`, `getNamedRoutes()` — expose state for cache and testing
+- `saveToCache()` / `loadFromCache()` — route cache integration
+
+**Modified — `src/Routing/Route.php`**
+
+- `bind()`, `model()` — model binding API
+- `cache()`, `loadCache()`, `clearCache()` — cache API
+- `group(array $attributes, callable $callback)` — combined prefix+middleware shorthand
+- `setRouter()`, `reset()` — testing helpers
+
+**Existing (shipped before Phase 4, now fully tested):**
+`MethodNotAllowedException`, `CorsMiddleware`, `RateLimitMiddleware`,
+`RateLimiterInterface`, `InMemoryRateLimiter`, `FileRateLimiter`
+
+**Tests added:** `MethodNotAllowedTest` (12), `CorsMiddlewareTest` (16), `RateLimiterTest` (15), `FileRateLimiterTest` (14), `RateLimitMiddlewareTest` (9), `RouteCacheTest` (15), `RouteModelBindingTest` (10)
+
+**Total: OK (180 tests, 261 assertions)**
+
+---
+
+### v0.2.4 and earlier
+
+HTTP Request/Response, Router with groups and named routes, resource/apiResource, Pipeline, RouteRegistrar, RouteGroup, method override, `$_GET` isolation.
