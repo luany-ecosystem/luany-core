@@ -2,7 +2,7 @@
 
 **HTTP Request/Response, Router, Middleware Pipeline, CORS, Rate Limiting, and Route Caching for the Luany ecosystem.**
 
-**Version**: v1.0.0 &nbsp;|&nbsp; **PHP**: >= 8.1 &nbsp;|&nbsp; **License**: MIT
+**Version**: v1.0.0 &nbsp;|&nbsp; **PHP**: >= 8.2 &nbsp;|&nbsp; **License**: MIT
 **Author**: António Ambrósio Ngola &nbsp;|&nbsp; **Org**: [luany-ecosystem](https://github.com/luany-ecosystem)
 
 ---
@@ -40,8 +40,7 @@ $request->uri();                             // '/users/42'
 $request->input('name', 'default');          // body or query value
 $request->query('page');                     // query string only
 $request->post('email');                     // body only
-$request->all();                             // merged query + body
-$request->only(['name', 'email']);
+$request->all();                             // merged query + body$request->body();                            // body only$request->only(['name', 'email']);
 $request->except(['password']);
 $request->has('name');                       // bool
 $request->filled('name');                    // bool — exists and non-empty
@@ -63,6 +62,8 @@ $request->expectsJson();
 **Method override**: HTML forms may include a hidden `_method` field (`PUT`, `PATCH`, `DELETE`). `fromGlobals()` handles this automatically.
 
 **JSON body**: If `Content-Type: application/json`, the body is parsed from `php://input` automatically.
+
+**Body-only helper**: `Request::body()` returns only parsed body fields (POST/JSON), unlike `all()` which merges body + query.
 
 ---
 
