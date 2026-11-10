@@ -37,18 +37,48 @@ class RouteCacheTest extends TestCase
         $this->assertFileExists($this->cacheFile);
     }
 
-    public function test_store_excludes_closure_actions(): void
+    public function test_store_refuses_closure_actions_and_lists_them(): void
     {
         $routes = [
             ['method' => 'GET',  'uri' => '/array',   'action' => ['Controller', 'method'], 'middleware' => [], 'name' => null],
             ['method' => 'POST', 'uri' => '/closure', 'action' => fn() => Response::make('ok'), 'middleware' => [], 'name' => null],
         ];
 
-        RouteCache::store($routes, [], $this->cacheFile);
+        try {
+            RouteCache::store($routes, [], $this->cacheFile);
+            $this->fail('Expected RuntimeException');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('POST /closure', $e->getMessage());
+        }
 
-        $data = RouteCache::load($this->cacheFile);
-        $this->assertCount(1, $data['routes']);
-        $this->assertSame('/array', $data['routes'][0]['uri']);
+        $this->assertFileDoesNotExist($this->cacheFile);
+    }
+
+    public function test_store_refuses_object_middleware_without_set_state(): void
+    {
+        $routes = [
+            ['method' => 'GET', 'uri' => '/x', 'action' => ['C', 'm'], 'middleware' => [new \Luany\Core\Middleware\CorsMiddleware()], 'name' => null],
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('CorsMiddleware');
+        RouteCache::store($routes, [], $this->cacheFile);
+    }
+
+    public function test_view_routes_and_model_bindings_survive_cache(): void
+    {
+        Route::reset();
+        Route::view('/about', 'pages.about', ['title' => 'About'])->name('about');
+        Route::model('user', \stdClass::class);
+        Route::cache($this->cacheFile);
+
+        Route::reset();
+        Route::setViewRenderer(fn (string $view, array $data) => "{$view}:{$data['title']}");
+        $this->assertTrue(Route::loadCache($this->cacheFile));
+
+        $response = Route::handle(new \Luany\Core\Http\Request('GET', '/about'));
+        $this->assertSame('pages.about:About', $response->getBody());
+        $this->assertArrayHasKey('user', Route::router()->getBindings());
     }
 
     public function test_store_preserves_named_routes(): void
@@ -149,23 +179,6 @@ class RouteCacheTest extends TestCase
         $this->assertFalse($router->loadFromCache('/no/such/cache.php'));
     }
 
-    public function test_cached_routes_can_dispatch_requests(): void
-    {
-        // Register and cache real routes
-        $router = new Router();
-        $router->addRoute('GET', '/hello', fn() => Response::make('cached!'));
-        $router->saveToCache($this->cacheFile);
-
-        // Load cache — closure was excluded, so this tests graceful degradation
-        $router2 = new Router();
-        $router2->loadFromCache($this->cacheFile);
-
-        // The cached routes (array-action only) have no closures to dispatch
-        // but the route table was correctly loaded
-        $routes = $router2->getRoutes();
-        $this->assertCount(0, $routes); // closure was excluded from cache
-    }
-
     public function test_cached_routes_with_array_action_dispatch_correctly(): void
     {
         // Register a route with array action pointing to an inline anonymous class
@@ -173,7 +186,6 @@ class RouteCacheTest extends TestCase
         // and the data round-trips correctly
         $router = new Router();
         $router->addRoute('GET', '/api/status', ['StatusController', 'index'])->name('status');
-        $router->addRoute('DELETE', '/api/gone', fn() => Response::make('closure'));
 
         $router->saveToCache($this->cacheFile);
 
@@ -181,7 +193,7 @@ class RouteCacheTest extends TestCase
         $router2->loadFromCache($this->cacheFile);
 
         $routes = $router2->getRoutes();
-        $this->assertCount(1, $routes); // only array-action cached
+        $this->assertCount(1, $routes);
         $this->assertSame('GET', $routes[0]['method']);
         $this->assertSame('/api/status', $routes[0]['uri']);
         $this->assertSame(['StatusController', 'index'], $routes[0]['action']);
