@@ -245,6 +245,16 @@ Route::router()->setResolver(fn (string $class) => $container->make($class));
 
 Without a resolver, `new $class()` is used.
 
+Action arguments can be resolved the same way. An invoker receives the action, the request and the route parameters by name:
+
+```php
+Route::router()->setInvoker(
+    fn (callable $action, Request $request, array $params) => $container->call($action, $request, $params)
+);
+```
+
+Without an invoker, actions receive `($request, ...$params)` in order. luany/framework registers one automatically.
+
 ### Route Caching
 
 Serializes the compiled route table to a PHP file (written atomically). Array actions (`[Controller::class, 'method']`), `Route::view()` routes and `Route::model()` bindings are cached. Closure actions, closure `Route::bind()` resolvers and object middleware without `__set_state()` cannot be serialized: `Route::cache()` **throws and lists the offending routes** instead of silently dropping them.
