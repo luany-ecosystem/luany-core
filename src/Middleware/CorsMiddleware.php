@@ -57,7 +57,14 @@ class CorsMiddleware implements MiddlewareInterface
         private readonly array $exposedHeaders   = [],
         private readonly bool  $allowCredentials = false,
         private readonly int   $maxAge           = 86400,
-    ) {}
+    ) {
+        if ($allowCredentials && in_array('*', $allowedOrigins, true)) {
+            throw new \InvalidArgumentException(
+                'CORS: allowCredentials cannot be combined with the "*" origin — '
+                . 'that would let any website make authenticated requests. List the allowed origins explicitly.'
+            );
+        }
+    }
 
     public function handle(Request $request, callable $next): Response
     {
@@ -89,6 +96,12 @@ class CorsMiddleware implements MiddlewareInterface
     private function addCorsHeaders(Response $response, string $requestOrigin): Response
     {
         $allowedOrigin = $this->resolveAllowedOrigin($requestOrigin);
+
+        // The response depends on Origin whenever we don't answer "*":
+        // tell shared caches so one origin's response is not served to another.
+        if ($allowedOrigin !== '*') {
+            $response = $response->header('Vary', $this->appendVary($response, 'Origin'));
+        }
 
         if ($allowedOrigin === null) {
             // Origin not allowed — return response without CORS headers
@@ -128,12 +141,8 @@ class CorsMiddleware implements MiddlewareInterface
      */
     private function resolveAllowedOrigin(string $requestOrigin): ?string
     {
-        // Wildcard — allow all origins
-        if ($this->allowedOrigins === ['*']) {
-            // Credentials + wildcard: must reflect the actual origin (spec requirement)
-            if ($this->allowCredentials && $requestOrigin !== '') {
-                return $requestOrigin;
-            }
+        // Wildcard — allow all origins (never combined with credentials, see constructor)
+        if (in_array('*', $this->allowedOrigins, true)) {
             return '*';
         }
 
@@ -156,20 +165,72 @@ class CorsMiddleware implements MiddlewareInterface
      * Match a configured origin against the request origin.
      * Supports exact strings and simple wildcard subdomains: '*.example.com'
      */
+    /**
+     * Supported patterns:
+     *   https://app.example.com    exact origin
+     *   https://*.example.com      any subdomain, HTTPS only
+     *   *.example.com              any subdomain, any scheme
+     */
     private function originMatches(string $pattern, string $origin): bool
     {
-        if ($pattern === $origin) {
+        if (strcasecmp($pattern, $origin) === 0) {
             return true;
         }
 
-        // Wildcard subdomain pattern: *.example.com
-        if (str_starts_with($pattern, '*.')) {
-            $domain = substr($pattern, 2); // strip '*.'
-            // Match: any-subdomain.example.com or example.com itself
-            return str_ends_with($origin, '.' . $domain)
-                || $origin === $domain;
+        if (!str_contains($pattern, '*.')) {
+            return false;
         }
 
-        return false;
+        $originScheme = strtolower((string) parse_url($origin, PHP_URL_SCHEME));
+        $originHost   = strtolower((string) parse_url($origin, PHP_URL_HOST));
+        $originPort   = parse_url($origin, PHP_URL_PORT);
+
+        if ($originHost === '') {
+            return false;
+        }
+
+        $patternScheme = null;
+        $hostPattern   = $pattern;
+
+        if (str_contains($pattern, '://')) {
+            [$patternScheme, $hostPattern] = explode('://', $pattern, 2);
+            $patternScheme = strtolower($patternScheme);
+        }
+
+        $patternPort = null;
+        if (preg_match('/^(.*):(\d+)$/', $hostPattern, $m) === 1) {
+            [$hostPattern, $patternPort] = [$m[1], (int) $m[2]];
+        }
+
+        if ($patternScheme !== null && $patternScheme !== $originScheme) {
+            return false;
+        }
+        if ($patternPort !== $originPort) {
+            return false;
+        }
+
+        $domain = strtolower(substr($hostPattern, 2)); // strip "*."
+
+        return str_ends_with($originHost, '.' . $domain);
+    }
+
+    private function appendVary(Response $response, string $header): string
+    {
+        $existing = '';
+        foreach ($response->getHeaders() as $name => $value) {
+            if (strcasecmp($name, 'Vary') === 0) {
+                $existing = $value;
+            }
+        }
+
+        $values = array_filter(array_map('trim', explode(',', $existing)));
+        foreach ($values as $v) {
+            if (strcasecmp($v, $header) === 0) {
+                return implode(', ', $values);
+            }
+        }
+
+        $values[] = $header;
+        return implode(', ', $values);
     }
 }

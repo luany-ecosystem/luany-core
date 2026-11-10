@@ -6,6 +6,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — 1.1.0
+
+### Security
+- `Route::view()` no longer merges `$_GET` into view data — query strings could override developer variables (e.g. `?isAdmin=1`) (#3).
+- `Request::ip()` ignores `X-Forwarded-For` unless `REMOTE_ADDR` is a trusted proxy (`Request::setTrustedProxies()`); the chain is walked right-to-left (#4).
+- CORS: `['*']` + `allowCredentials` now throws; `Vary: Origin` is sent; subdomain patterns are scheme-aware and no longer match look-alike suffixes (#5).
+- Named-route parameters are URL-encoded (#11).
+
+### Added
+- Dependency-injection hook: `Pipeline::setDefaultResolver()`, `new Pipeline($resolver)`, `Router::setResolver()` — controllers and middleware with constructor dependencies now work (#2).
+- `Request::isSecure()`, `Request::setTrustedProxies()`, `Request::stripBasePath()`.
+- `Response::cookie()` / `forgetCookie()` (multiple `Set-Cookie` headers, secure defaults), `getCookies()`, `setProtocolVersion()`; complete status-text table (#10).
+- `Router::bindModel()`; `Route::model()` bindings survive the route cache.
+- `ViewAction` — cacheable action behind `Route::view()`.
+
+### Fixed
+- `HEAD` requests match `GET` routes and return headers without a body (#6).
+- Static route segments are regex-escaped (`/v1.0` no longer matches `/v1X0`); compiled patterns are memoised (#7).
+- Sub-folder installs only strip the base path on a segment boundary (#8).
+- Route cache refuses uncacheable routes with a clear list instead of silently dropping them or writing a file that fatals on load; writes are atomic (#9).
+- `Response::json()` substitutes invalid UTF-8 instead of returning an empty body; other errors throw `JsonException` (#10).
+- `getNamedRoute()` throws on missing parameters and appends extra ones as a query string (#11).
+- `FileRateLimiter::attempt()` holds an exclusive lock across read-modify-write (#12).
+
+### Upgrade notes
+- `CorsMiddleware(allowedOrigins: ['*'], allowCredentials: true)` must list origins explicitly.
+- Behind a proxy, call `Request::setTrustedProxies([...])` to keep real client IPs.
+- `Route::cache()` throws if any route uses a closure action.
+
+---
+
 ## [1.0.0] — 2026-03-23
 
 ### Added

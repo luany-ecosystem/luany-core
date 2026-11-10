@@ -66,14 +66,43 @@ class CorsMiddlewareTest extends TestCase
         $this->assertSame('*', $response->getHeaders()['Access-Control-Allow-Origin']);
     }
 
-    public function test_wildcard_with_credentials_echoes_actual_origin(): void
+    public function test_wildcard_with_credentials_is_rejected(): void
     {
-        $cors     = new CorsMiddleware(allowedOrigins: ['*'], allowCredentials: true);
-        $response = $cors->handle($this->makeRequest('GET', 'https://myapp.com'), $this->next());
+        $this->expectException(\InvalidArgumentException::class);
+        new CorsMiddleware(allowedOrigins: ['*'], allowCredentials: true);
+    }
+
+    public function test_reflected_origin_sends_vary_header(): void
+    {
+        $cors     = new CorsMiddleware(allowedOrigins: ['https://app.luany.dev'], allowCredentials: true);
+        $response = $cors->handle($this->makeRequest('GET', 'https://app.luany.dev'), $this->next());
 
         $headers = $response->getHeaders();
-        $this->assertSame('https://myapp.com', $headers['Access-Control-Allow-Origin']);
+        $this->assertSame('https://app.luany.dev', $headers['Access-Control-Allow-Origin']);
+        $this->assertSame('Origin', $headers['Vary']);
         $this->assertSame('true', $headers['Access-Control-Allow-Credentials']);
+    }
+
+    public function test_disallowed_origin_still_varies_on_origin(): void
+    {
+        $cors     = new CorsMiddleware(allowedOrigins: ['https://app.luany.dev']);
+        $response = $cors->handle($this->makeRequest('GET', 'https://evil.com'), $this->next());
+
+        $this->assertArrayNotHasKey('Access-Control-Allow-Origin', $response->getHeaders());
+        $this->assertSame('Origin', $response->getHeaders()['Vary']);
+    }
+
+    public function test_scheme_aware_subdomain_pattern(): void
+    {
+        $cors = new CorsMiddleware(allowedOrigins: ['https://*.luany.dev']);
+
+        $ok  = $cors->handle($this->makeRequest('GET', 'https://docs.luany.dev'), $this->next());
+        $bad = $cors->handle($this->makeRequest('GET', 'http://docs.luany.dev'), $this->next());
+        $sfx = $cors->handle($this->makeRequest('GET', 'https://evilluany.dev'), $this->next());
+
+        $this->assertSame('https://docs.luany.dev', $ok->getHeaders()['Access-Control-Allow-Origin']);
+        $this->assertArrayNotHasKey('Access-Control-Allow-Origin', $bad->getHeaders());
+        $this->assertArrayNotHasKey('Access-Control-Allow-Origin', $sfx->getHeaders());
     }
 
     // ── Specific origins ──────────────────────────────────────────────────────

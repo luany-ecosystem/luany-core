@@ -42,18 +42,38 @@ class FileRateLimiter implements RateLimiterInterface
         $now  = time();
         $path = $this->pathFor($key);
 
-        $data = $this->read($path);
-
-        // Initialise or reset expired window
-        if ($data === null || $data['resetsAt'] <= $now) {
-            $data = [
-                'hits'     => 0,
-                'resetsAt' => $now + $decaySeconds,
-            ];
+        // Exclusive lock around read-modify-write so concurrent requests
+        // cannot lose increments.
+        $handle = fopen($path, 'c+');
+        if ($handle === false) {
+            throw new \RuntimeException("Rate limiter file could not be opened: {$path}");
         }
 
-        $data['hits']++;
-        $this->write($path, $data);
+        try {
+            flock($handle, LOCK_EX);
+
+            $raw     = stream_get_contents($handle);
+            $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+            $data    = is_array($decoded) && isset($decoded['hits'], $decoded['resetsAt']) ? $decoded : null;
+
+            // Initialise or reset expired window
+            if ($data === null || $data['resetsAt'] <= $now) {
+                $data = [
+                    'hits'     => 0,
+                    'resetsAt' => $now + $decaySeconds,
+                ];
+            }
+
+            $data['hits']++;
+
+            ftruncate($handle, 0);
+            rewind($handle);
+            fwrite($handle, (string) json_encode($data));
+            fflush($handle);
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
 
         return $data['hits'] <= $maxAttempts;
     }
@@ -152,28 +172,4 @@ class FileRateLimiter implements RateLimiterInterface
         return $data;
     }
 
-    /**
-     * Write rate-limit data to file with an exclusive lock.
-     *
-     * @param array{hits: int, resetsAt: int} $data
-     */
-    private function write(string $path, array $data): void
-    {
-        $handle = fopen($path, 'c');
-        if ($handle === false) {
-            return; // Fail open — allow the request rather than error
-        }
-
-        try {
-            if (flock($handle, LOCK_EX)) {
-                ftruncate($handle, 0);
-                rewind($handle);
-                fwrite($handle, json_encode($data));
-                fflush($handle);
-                flock($handle, LOCK_UN);
-            }
-        } finally {
-            fclose($handle);
-        }
-    }
 }
