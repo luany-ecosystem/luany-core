@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — 1.1.0
+## [1.1.0] — 2026-11-10
 
 ### Security
 - `Route::view()` no longer merges `$_GET` into view data — query strings could override developer variables (e.g. `?isAdmin=1`) (#3).
