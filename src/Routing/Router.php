@@ -44,6 +44,32 @@ class Router
     /** @var array<string, callable(string): mixed> Param → resolver mapping for model binding */
     private array $bindings = [];
 
+    /** @var array<string, class-string> Param → model class (cacheable bindings from Route::model()) */
+    private array $modelBindings = [];
+
+    /** @var (callable(class-string): object)|null Controller/middleware resolver (DI container hook) */
+    private $resolver = null;
+
+    /** @var array<string, string> Compiled regex cache keyed by route URI */
+    private array $patternCache = [];
+
+    // ── Resolver (dependency injection hook) ──────────────────────────────────
+
+    /**
+     * Resolve controllers and class-name middleware through a container:
+     *
+     *   $router->setResolver(fn (string $class) => $container->make($class));
+     *
+     * Without a router resolver, Pipeline::getDefaultResolver() is used,
+     * then `new $class()`.
+     *
+     * @param (callable(class-string): object)|null $resolver
+     */
+    public function setResolver(?callable $resolver): void
+    {
+        $this->resolver = $resolver;
+    }
+
     // ── Group context ──────────────────────────────────────────────────────────
 
     /** @param array<string, mixed> $context */
@@ -111,17 +137,41 @@ class Router
 
     // ── Named routes ──────────────────────────────────────────────────────────
 
-    /** @param array<string, mixed> $params */
+    /**
+     * Build the URL of a named route.
+     *
+     * Parameter values are URL-encoded. Parameters not present in the route
+     * pattern are appended as a query string.
+     *
+     * @param array<string, mixed> $params
+     * @throws \InvalidArgumentException If a required route parameter is missing.
+     */
     public function getNamedRoute(string $name, array $params = []): ?string
     {
         if (!isset($this->namedRoutes[$name])) {
             return null;
         }
 
-        $uri = $this->namedRoutes[$name];
+        $uri   = $this->namedRoutes[$name];
+        $extra = [];
 
         foreach ($params as $key => $value) {
-            $uri = str_replace('{' . $key . '}', $value, $uri);
+            $placeholder = '{' . $key . '}';
+            if (str_contains($uri, $placeholder)) {
+                $uri = str_replace($placeholder, rawurlencode((string) $value), $uri);
+            } else {
+                $extra[$key] = $value;
+            }
+        }
+
+        if (preg_match_all('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', $uri, $missing) > 0) {
+            throw new \InvalidArgumentException(
+                "Missing parameter(s) [" . implode(', ', $missing[1]) . "] for route [{$name}]."
+            );
+        }
+
+        if ($extra !== []) {
+            $uri .= '?' . http_build_query($extra, '', '&', PHP_QUERY_RFC3986);
         }
 
         return $uri;
@@ -146,6 +196,19 @@ class Router
     public function bind(string $param, callable $resolver): void
     {
         $this->bindings[$param] = $resolver;
+        unset($this->modelBindings[$param]);
+    }
+
+    /**
+     * Bind a route parameter to a model class (Model::find($value)).
+     * Unlike closures, model bindings survive route caching.
+     *
+     * @param class-string $modelClass
+     */
+    public function bindModel(string $param, string $modelClass): void
+    {
+        $this->modelBindings[$param] = $modelClass;
+        $this->bindings[$param]      = static fn ($id) => $modelClass::find($id);
     }
 
     /**
@@ -174,7 +237,7 @@ class Router
      */
     public function saveToCache(string $path): void
     {
-        RouteCache::store($this->routes, $this->namedRoutes, $path);
+        RouteCache::store($this->routes, $this->namedRoutes, $path, $this->modelBindings);
     }
 
     /**
@@ -193,8 +256,13 @@ class Router
             return false;
         }
 
-        $this->routes      = $data['routes'];
-        $this->namedRoutes = $data['named'];
+        $this->routes       = $data['routes'];
+        $this->namedRoutes  = $data['named'];
+        $this->patternCache = [];
+
+        foreach ($data['models'] ?? [] as $param => $modelClass) {
+            $this->bindModel($param, $modelClass);
+        }
 
         return true;
     }
@@ -241,6 +309,9 @@ class Router
         $uri            = $request->uri();
         $allowedMethods = [];
 
+        // RFC 9110 §9.3.2: HEAD is handled like GET, without a body.
+        $isHead = $method === 'HEAD';
+
         foreach ($this->routes as $route) {
             $pattern = $this->compilePattern($route['uri']);
 
@@ -249,15 +320,21 @@ class Router
             }
 
             // URI matches — check method
-            if ($route['method'] === $method || $route['method'] === 'ANY') {
+            if (
+                $route['method'] === $method
+                || $route['method'] === 'ANY'
+                || ($isHead && $route['method'] === 'GET')
+            ) {
                 $params = $this->resolveBindings(
                     $this->extractParams($matches)
                 );
 
-                return (new Pipeline())
+                $response = (new Pipeline($this->resolver))
                     ->send($request)
                     ->through($route['middleware'])
                     ->then(fn(Request $req) => $this->executeAction($route['action'], $req, $params));
+
+                return $isHead ? $response->body('') : $response;
             }
 
             // URI matches but method does not — record for potential 405
@@ -286,11 +363,28 @@ class Router
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
+    /**
+     * Compile a route URI into a regex. Static segments are escaped with
+     * preg_quote(), so "/v1.0/x" does not match "/v1X0/x".
+     */
     private function compilePattern(string $uri): string
     {
-        $pattern = str_replace('/', '\\/', $uri);
-        $pattern = preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '(?P<$1>[^\\/]+)', $pattern);
-        return '#^' . $pattern . '$#';
+        if (isset($this->patternCache[$uri])) {
+            return $this->patternCache[$uri];
+        }
+
+        $parts   = preg_split('/(\{[a-zA-Z_][a-zA-Z0-9_]*\})/', $uri, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$uri];
+        $pattern = '';
+
+        foreach ($parts as $part) {
+            if (preg_match('/^\{([a-zA-Z_][a-zA-Z0-9_]*)\}$/', $part, $m) === 1) {
+                $pattern .= '(?P<' . $m[1] . '>[^/]+)';
+            } else {
+                $pattern .= preg_quote($part, '#');
+            }
+        }
+
+        return $this->patternCache[$uri] = '#^' . $pattern . '$#';
     }
 
     /**
@@ -346,7 +440,9 @@ class Router
                 }
             }
 
-            $instance = is_string($controller) ? new $controller() : $controller;
+            $instance = is_string($controller)
+                ? Pipeline::instantiate($controller, $this->resolver)
+                : $controller;
 
             if (!method_exists($instance, $method)) {
                 throw new \RuntimeException("Method [{$method}] not found in [" . get_class($instance) . "]");

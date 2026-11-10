@@ -50,7 +50,11 @@ $request->header('Authorization');           // case-insensitive
 $request->server('REMOTE_ADDR');
 $request->cookie('app_locale', 'en');
 $request->hasCookie('app_locale');
-$request->ip();                              // X-Forwarded-For → REMOTE_ADDR
+$request->ip();                              // REMOTE_ADDR (X-Forwarded-For only via trusted proxies)
+$request->isSecure();                        // HTTPS (X-Forwarded-Proto only via trusted proxies)
+
+// Behind a load balancer / reverse proxy:
+Request::setTrustedProxies(['10.0.0.0/8', '127.0.0.1']);
 $request->userAgent();
 $request->url();                             // full URL with scheme+host
 $request->isGet(); $request->isPost();       // method shortcuts
@@ -227,9 +231,23 @@ Route::get('/users/{user}', function (Request $request, ?User $user) {
 
 Unbound parameters pass through as raw strings. Bindings match by parameter name.
 
+### Dependency injection
+
+Controllers and class-name middleware are created through a resolver. Register your container once:
+
+```php
+use Luany\Core\Middleware\Pipeline;
+
+Pipeline::setDefaultResolver(fn (string $class) => $container->make($class));
+// or per router:
+Route::router()->setResolver(fn (string $class) => $container->make($class));
+```
+
+Without a resolver, `new $class()` is used.
+
 ### Route Caching
 
-Serializes the compiled route table to a PHP file. Only array-action routes (`[Controller::class, 'method']`) are cached — closure routes cannot be serialized.
+Serializes the compiled route table to a PHP file (written atomically). Array actions (`[Controller::class, 'method']`), `Route::view()` routes and `Route::model()` bindings are cached. Closure actions, closure `Route::bind()` resolvers and object middleware without `__set_state()` cannot be serialized: `Route::cache()` **throws and lists the offending routes** instead of silently dropping them.
 
 ```php
 // In production bootstrap:
@@ -293,7 +311,7 @@ $cors = new CorsMiddleware(
 );
 ```
 
-Behaviour: `OPTIONS` requests short-circuit with 204. Wildcard `['*']` + credentials echoes the actual `Origin`. Disallowed origins get no CORS headers. Subdomain wildcards (`*.example.com`) are supported.
+Behaviour: `OPTIONS` requests short-circuit with 204. Wildcard `['*']` combined with `allowCredentials: true` is **rejected** (it would let any site make authenticated requests). Reflected origins add `Vary: Origin`. Disallowed origins get no CORS headers. Subdomain patterns: `https://*.example.com` (scheme-checked) or `*.example.com` (any scheme).
 
 ### RateLimitMiddleware
 

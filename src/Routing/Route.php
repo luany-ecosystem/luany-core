@@ -81,8 +81,8 @@ class Route
      */
     public static function reset(): void
     {
-        self::$router      = null;
-        self::$viewRenderer = null;
+        self::$router = null;
+        ViewAction::setRenderer(null);
     }
 
     // ── HTTP verb registration ────────────────────────────────────────────────
@@ -218,44 +218,26 @@ class Route
 
     // ── View routes ───────────────────────────────────────────────────────────
 
-    private static ?\Closure $viewRenderer = null;
-
     public static function setViewRenderer(\Closure $renderer): void
     {
-        self::$viewRenderer = $renderer;
+        ViewAction::setRenderer($renderer);
     }
 
     /**
-     * Register a view-only route (no controller).
+     * Register a GET route that renders a view directly.
      *
-     * Requires Route::setViewRenderer() to be called at bootstrap.
+     * The view receives exactly $data. Request input is NOT merged in —
+     * read it from the request inside a controller if you need it.
+     *
+     * @param array<string, mixed> $data
      */
     public static function view(
         string $uri,
         string $viewName,
-        /** @param array<string, mixed> $data */
         array $data = [],
         ?string $name = null
     ): RouteRegistrar {
-        $renderer = self::$viewRenderer;
-
-        $action = function ($request) use ($viewName, $data, $renderer) {
-            $viewData = array_merge($data, $_GET);
-
-            if ($renderer !== null) {
-                return ($renderer)($viewName, $viewData);
-            }
-
-            if (function_exists('view')) {
-                return view($viewName, $viewData);
-            }
-
-            throw new \RuntimeException(
-                'No view renderer configured. Call Route::setViewRenderer() at bootstrap.'
-            );
-        };
-
-        return self::get($uri, $action, $name);
+        return self::get($uri, new ViewAction($viewName, $data), $name);
     }
 
     // ── Model binding ─────────────────────────────────────────────────────────
@@ -296,7 +278,7 @@ class Route
      */
     public static function model(string $param, string $modelClass): void
     {
-        self::router()->bind($param, fn($id) => $modelClass::find($id));
+        self::router()->bindModel($param, $modelClass);
     }
 
     // ── Route caching ─────────────────────────────────────────────────────────

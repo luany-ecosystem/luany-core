@@ -28,6 +28,9 @@ class Request
     /** @var array<string, mixed> */
     private array $cookies;
 
+    /** @var array<int, string> Trusted proxy IPs / CIDR ranges (IPv4 or IPv6) */
+    private static array $trustedProxies = [];
+
     /**
      * @param array<string, mixed>  $query
      * @param array<string, mixed>  $body
@@ -75,11 +78,7 @@ class Request
 
         $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
 
-        // Strip script directory prefix (sub-folder installs)
-        $scriptDir = dirname($_SERVER['SCRIPT_NAME'] ?? '');
-        if ($scriptDir && $scriptDir !== '/' && str_starts_with($uri, $scriptDir)) {
-            $uri = substr($uri, strlen($scriptDir));
-        }
+        $uri = self::stripBasePath($uri, (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
 
         $uri = '/' . trim($uri, '/');
         if ($uri === '') $uri = '/'; // @phpstan-ignore identical.alwaysFalse
@@ -270,11 +269,153 @@ class Request
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /**
+     * Client IP address.
+     *
+     * X-Forwarded-For is only honoured when REMOTE_ADDR is a trusted proxy
+     * (see setTrustedProxies()). The chain is walked right-to-left and the
+     * first address that is not itself a trusted proxy is returned, so
+     * clients cannot spoof their IP by sending the header themselves.
+     */
     public function ip(): string
     {
-        return $this->server['HTTP_X_FORWARDED_FOR']
-            ?? $this->server['REMOTE_ADDR']
-            ?? '0.0.0.0';
+        $remote = (string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0');
+
+        if (!$this->isFromTrustedProxy()) {
+            return $remote;
+        }
+
+        $forwarded = (string) ($this->server['HTTP_X_FORWARDED_FOR'] ?? '');
+        if ($forwarded === '') {
+            return $remote;
+        }
+
+        $chain = array_reverse(array_map('trim', explode(',', $forwarded)));
+
+        foreach ($chain as $candidate) {
+            if (filter_var($candidate, FILTER_VALIDATE_IP) === false) {
+                break; // malformed entry: stop trusting the rest of the chain
+            }
+            if (!self::ipMatches($candidate, self::$trustedProxies)) {
+                return $candidate;
+            }
+        }
+
+        return $remote;
+    }
+
+    /**
+     * Whether the request arrived over HTTPS (honours X-Forwarded-Proto
+     * only from trusted proxies).
+     */
+    public function isSecure(): bool
+    {
+        $https = $this->server['HTTPS'] ?? '';
+        if (!empty($https) && strtolower((string) $https) !== 'off') {
+            return true;
+        }
+
+        if ($this->isFromTrustedProxy()) {
+            $proto = strtolower(trim(explode(',', (string) ($this->server['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+            return $proto === 'https';
+        }
+
+        return false;
+    }
+
+    /**
+     * Configure proxies whose X-Forwarded-* headers are trusted.
+     * Accepts IPs and CIDR ranges, e.g. ['10.0.0.0/8', '127.0.0.1', '::1'].
+     *
+     * @param array<int, string> $proxies
+     */
+    public static function setTrustedProxies(array $proxies): void
+    {
+        self::$trustedProxies = array_values($proxies);
+    }
+
+    /** @return array<int, string> */
+    public static function getTrustedProxies(): array
+    {
+        return self::$trustedProxies;
+    }
+
+    private function isFromTrustedProxy(): bool
+    {
+        $remote = (string) ($this->server['REMOTE_ADDR'] ?? '');
+        return $remote !== '' && self::ipMatches($remote, self::$trustedProxies);
+    }
+
+    /**
+     * @param array<int, string> $ranges
+     */
+    private static function ipMatches(string $ip, array $ranges): bool
+    {
+        $ipBin = @inet_pton($ip);
+        if ($ipBin === false) {
+            return false;
+        }
+
+        foreach ($ranges as $range) {
+            [$subnet, $bits] = str_contains($range, '/')
+                ? explode('/', $range, 2)
+                : [$range, null];
+
+            $subnetBin = @inet_pton($subnet);
+            if ($subnetBin === false || strlen($subnetBin) !== strlen($ipBin)) {
+                continue;
+            }
+
+            $maxBits = strlen($ipBin) * 8;
+            $bits    = $bits === null ? $maxBits : (int) $bits;
+            if ($bits < 0 || $bits > $maxBits) {
+                continue;
+            }
+
+            $bytes = intdiv($bits, 8);
+            $rest  = $bits % 8;
+
+            if (substr($ipBin, 0, $bytes) !== substr($subnetBin, 0, $bytes)) {
+                continue;
+            }
+
+            if ($rest === 0) {
+                return true;
+            }
+
+            $mask = chr((0xFF << (8 - $rest)) & 0xFF);
+            if ((($ipBin[$bytes] ?? "\0") & $mask) === (($subnetBin[$bytes] ?? "\0") & $mask)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Remove the front-controller directory from the path for sub-folder
+     * installs. Only strips on a path-segment boundary: with SCRIPT_NAME
+     * "/app/index.php", "/app/x" → "/x" but "/application/x" is untouched.
+     */
+    public static function stripBasePath(string $uri, string $scriptName): string
+    {
+        $scriptDir = str_replace('\\', '/', dirname($scriptName));
+
+        if ($scriptDir === '' || $scriptDir === '/' || $scriptDir === '.') {
+            return $uri;
+        }
+
+        $scriptDir = rtrim($scriptDir, '/');
+
+        if ($uri === $scriptDir) {
+            return '/';
+        }
+
+        if (str_starts_with($uri, $scriptDir . '/')) {
+            return substr($uri, strlen($scriptDir));
+        }
+
+        return $uri;
     }
 
     public function userAgent(): string
@@ -284,7 +425,7 @@ class Request
 
     public function url(): string
     {
-        $scheme = (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off') ? 'https' : 'http';
+        $scheme = $this->isSecure() ? 'https' : 'http';
         $host   = $this->server['HTTP_HOST'] ?? 'localhost';
         return $scheme . '://' . $host . $this->uri;
     }
