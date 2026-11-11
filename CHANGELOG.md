@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — 1.2.0
+## [1.2.0] — 2026-11-11
 
 ### Added
 - `Router::setInvoker(?callable)` — hook that controls how route actions are called. It receives the action callable, the `Request` and the route parameters keyed by name (after model binding), so frameworks can inject services into controller methods by type and parameters by name. Without an invoker, actions keep receiving `($request, ...$params)` positionally. (luany-ecosystem/luany-framework#11)
