@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — 1.3.0
+## [1.3.0] — 2026-11-11
 
 ### Added
 - **PSR-15 middleware** in the pipeline (instances or class names), wrapped by `Psr\Psr15Middleware`. (#13)
