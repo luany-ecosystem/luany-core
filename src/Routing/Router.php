@@ -50,6 +50,13 @@ class Router
     /** @var (callable(class-string): object)|null Controller/middleware resolver (DI container hook) */
     private $resolver = null;
 
+    /**
+     * Action invoker (argument resolution hook).
+     *
+     * @var (callable(callable, Request, array<string, mixed>): mixed)|null
+     */
+    private $invoker = null;
+
     /** @var array<string, string> Compiled regex cache keyed by route URI */
     private array $patternCache = [];
 
@@ -68,6 +75,23 @@ class Router
     public function setResolver(?callable $resolver): void
     {
         $this->resolver = $resolver;
+    }
+
+    /**
+     * Control how route actions are called — e.g. to inject services into
+     * controller methods by type and route parameters by name:
+     *
+     *   $router->setInvoker(fn (callable $action, Request $request, array $params)
+     *       => $container->call($action, $request, $params));
+     *
+     * $params are the route parameters (after model binding), keyed by name.
+     * Without an invoker, actions receive ($request, ...$params) positionally.
+     *
+     * @param (callable(callable, Request, array<string, mixed>): mixed)|null $invoker
+     */
+    public function setInvoker(?callable $invoker): void
+    {
+        $this->invoker = $invoker;
     }
 
     // ── Group context ──────────────────────────────────────────────────────────
@@ -424,8 +448,7 @@ class Router
     private function executeAction(mixed $action, Request $request, array $params = []): Response
     {
         if (is_callable($action)) {
-            $result = call_user_func($action, $request, ...array_values($params));
-            return $this->toResponse($result);
+            return $this->toResponse($this->invoke($action, $request, $params));
         }
 
         if (is_array($action)) {
@@ -448,11 +471,22 @@ class Router
                 throw new \RuntimeException("Method [{$method}] not found in [" . get_class($instance) . "]");
             }
 
-            $result = call_user_func([$instance, $method], $request, ...array_values($params));
-            return $this->toResponse($result);
+            return $this->toResponse($this->invoke([$instance, $method], $request, $params));
         }
 
         throw new \RuntimeException('Invalid route action — must be callable or [Controller::class, method]');
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private function invoke(callable $callable, Request $request, array $params): mixed
+    {
+        if ($this->invoker !== null) {
+            return ($this->invoker)($callable, $request, $params);
+        }
+
+        return $callable($request, ...array_values($params));
     }
 
     /**
