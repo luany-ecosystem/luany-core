@@ -6,6 +6,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — 1.3.0
+
+### Added
+- **PSR-15 middleware** in the pipeline (instances or class names), wrapped by `Psr\Psr15Middleware`. (#13)
+- **`Psr\RequestHandler`** — exposes the router / kernel as a PSR-15 `RequestHandlerInterface` for PSR-15 servers and long-running workers. (#13)
+- **PSR-7 conversion** — `Request::toPsr()` / `fromPsr()`, `Response::toPsr()` / `fromPsr()` (headers, cookies, JSON bodies, uploaded files). (#13)
+- **PSR-11** — `Pipeline::useContainer(ContainerInterface)`. (#13)
+- `Psr\Psr17` — PSR-17 factory registry with auto-detection of nyholm/psr7 and guzzlehttp/psr7.
+- `Request::queryParams()`, `files()`, `serverParams()`, `cookies()`; `Response::rawCookie()`.
+
+### Changed
+- Requires the PSR interface packages `psr/http-message`, `psr/http-factory`, `psr/http-server-middleware`, `psr/http-server-handler`, `psr/container` (interfaces only — no implementation is forced).
+
+---
+
 ## [1.2.0] — 2026-11-11
 
 ### Added

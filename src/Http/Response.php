@@ -221,6 +221,32 @@ class Response
     }
 
     /**
+     * Append a pre-formatted Set-Cookie value (e.g. from a PSR-7 response).
+     */
+    public function rawCookie(string $setCookie): self
+    {
+        if (preg_match('/[\r\n]/', $setCookie) === 1) {
+            throw new \InvalidArgumentException('Set-Cookie value must not contain line breaks.');
+        }
+
+        $this->cookies[] = $setCookie;
+        return $this;
+    }
+
+    /**
+     * Convert to a PSR-7 response (needs PSR-17 factories, see Psr\Psr17).
+     */
+    public function toPsr(): \Psr\Http\Message\ResponseInterface
+    {
+        return \Luany\Core\Psr\PsrConverter::toPsrResponse($this);
+    }
+
+    public static function fromPsr(\Psr\Http\Message\ResponseInterface $response): self
+    {
+        return \Luany\Core\Psr\PsrConverter::fromPsrResponse($response);
+    }
+
+    /**
      * Expire a cookie in the browser.
      */
     public function forgetCookie(string $name, string $path = '/', string $domain = ''): self
