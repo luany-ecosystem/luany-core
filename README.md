@@ -255,6 +255,47 @@ Route::router()->setInvoker(
 
 Without an invoker, actions receive `($request, ...$params)` in order. luany/framework registers one automatically.
 
+### PSR interoperability (PSR-7 / PSR-15 / PSR-11)
+
+Requires a PSR-7/PSR-17 implementation; `nyholm/psr7` and `guzzlehttp/psr7` are auto-detected:
+
+```bash
+composer require nyholm/psr7
+```
+
+**PSR-15 middleware** from any package works in routes and groups, as an instance or class name:
+
+```php
+Route::get('/api/data', [ApiController::class, 'index'])
+    ->middleware(new \Middlewares\Cors($analyzer));       // any Psr\Http\Server\MiddlewareInterface
+```
+
+**Run the app behind a PSR-15 server** (RoadRunner, FrankenPHP worker mode, ReactPHP, …):
+
+```php
+use Luany\Core\Psr\RequestHandler;
+
+$handler = new RequestHandler(fn (Request $request) => $kernel->handle($request));
+$psrResponse = $handler->handle($psrServerRequest);
+```
+
+**Convert messages** when calling PSR libraries directly:
+
+```php
+$psrRequest = $request->toPsr();            // ServerRequestInterface
+$request    = Request::fromPsr($psrRequest);
+$psrResponse = $response->toPsr();          // ResponseInterface
+$response    = Response::fromPsr($psrResponse);
+```
+
+**Any PSR-11 container** can build middleware and controllers:
+
+```php
+Pipeline::useContainer($container);   // Psr\Container\ContainerInterface
+```
+
+Use another PSR-17 factory explicitly with `Luany\Core\Psr\Psr17::use($factory)`.
+
 ### Route Caching
 
 Serializes the compiled route table to a PHP file (written atomically). Array actions (`[Controller::class, 'method']`), `Route::view()` routes and `Route::model()` bindings are cached. Closure actions, closure `Route::bind()` resolvers and object middleware without `__set_state()` cannot be serialized: `Route::cache()` **throws and lists the offending routes** instead of silently dropping them.

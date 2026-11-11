@@ -250,6 +250,43 @@ class Request
         return $this->headers;
     }
 
+    /**
+     * Convert to a PSR-7 server request (needs PSR-17 factories, see Psr\Psr17).
+     */
+    public function toPsr(): \Psr\Http\Message\ServerRequestInterface
+    {
+        return \Luany\Core\Psr\PsrConverter::toPsrRequest($this);
+    }
+
+    public static function fromPsr(\Psr\Http\Message\ServerRequestInterface $request): self
+    {
+        return \Luany\Core\Psr\PsrConverter::fromPsrRequest($request);
+    }
+
+    /** @return array<string, mixed> All query-string parameters. */
+    public function queryParams(): array
+    {
+        return $this->query;
+    }
+
+    /** @return array<string, mixed> Uploaded files ($_FILES format). */
+    public function files(): array
+    {
+        return $this->files;
+    }
+
+    /** @return array<string, mixed> Server parameters ($_SERVER format). */
+    public function serverParams(): array
+    {
+        return $this->server;
+    }
+
+    /** @return array<string, mixed> All cookies. */
+    public function cookies(): array
+    {
+        return $this->cookies;
+    }
+
     // ── Server ────────────────────────────────────────────────────────────────
 
     public function server(string $key, mixed $default = null): mixed

@@ -29,7 +29,7 @@ use Luany\Core\Http\Response;
 class Pipeline
 {
     private Request $request;
-    /** @var array<int, class-string<MiddlewareInterface>|MiddlewareInterface> */
+    /** @var array<int, class-string|MiddlewareInterface|\Psr\Http\Server\MiddlewareInterface> */
     private array   $middleware = [];
 
     /** @var (callable(class-string): object)|null */
@@ -86,7 +86,7 @@ class Pipeline
         return $this;
     }
 
-    /** @param array<int, class-string<MiddlewareInterface>|MiddlewareInterface> $middleware */
+    /** @param array<int, class-string|MiddlewareInterface|\Psr\Http\Server\MiddlewareInterface> $middleware */
     public function through(array $middleware): self
     {
         $this->middleware = $middleware;
@@ -104,24 +104,45 @@ class Pipeline
         return $pipeline($this->request);
     }
 
-    /** @param class-string<MiddlewareInterface>|MiddlewareInterface $middleware */
+    /**
+     * Resolve a PSR-11 container as the default resolver: classes it knows
+     * come from the container, anything else is built with `new`.
+     */
+    public static function useContainer(\Psr\Container\ContainerInterface $container): void
+    {
+        self::setDefaultResolver(
+            static fn (string $class): object => $container->has($class)
+                ? $container->get($class)
+                : new $class()
+        );
+    }
+
+    /**
+     * Luany middleware as-is; PSR-15 middleware (instances or class names)
+     * wrapped in Psr\Psr15Middleware.
+     *
+     * @param class-string<MiddlewareInterface>|MiddlewareInterface|\Psr\Http\Server\MiddlewareInterface $middleware
+     */
     private function resolve(mixed $middleware): MiddlewareInterface
     {
         if (is_string($middleware)) {
             if (!class_exists($middleware)) {
                 throw new \RuntimeException("Middleware class not found: {$middleware}");
             }
-            $instance = self::instantiate($middleware, $this->resolver);
-            if (!$instance instanceof MiddlewareInterface) {
-                throw new \RuntimeException("Middleware [{$middleware}] must implement MiddlewareInterface");
-            }
-            return $instance;
+            $middleware = self::instantiate($middleware, $this->resolver);
         }
 
         if ($middleware instanceof MiddlewareInterface) {
             return $middleware;
         }
 
-        throw new \RuntimeException('Invalid middleware — must be class name string or MiddlewareInterface instance');
+        if ($middleware instanceof \Psr\Http\Server\MiddlewareInterface) {
+            return new \Luany\Core\Psr\Psr15Middleware($middleware);
+        }
+
+        $type = is_object($middleware) ? get_class($middleware) : gettype($middleware);
+        throw new \RuntimeException(
+            "Middleware [{$type}] must implement Luany\\Core\\Middleware\\MiddlewareInterface or PSR-15's Psr\\Http\\Server\\MiddlewareInterface"
+        );
     }
 }
