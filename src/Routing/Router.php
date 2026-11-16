@@ -30,10 +30,28 @@ use Luany\Core\Exceptions\RouteNotFoundException;
  * Route caching:
  *   $router->saveToCache('/path/to/routes.cache.php');
  *   $router->loadFromCache('/path/to/routes.cache.php');
- *   // Caches array-action routes; closure routes are excluded (not serializable)
+ *   // Only cacheable actions (controller arrays, Route::view()) are allowed;
+ *   // saveToCache() throws a RuntimeException listing any closure routes.
+ *
+ * Scalar route parameters:
+ *   A parameter whose action argument is declared int or float receives the
+ *   converted value; a segment that is not a valid number for that type
+ *   (e.g. "/users/abc" for `int $id`) throws RouteNotFoundException (404)
+ *   before any route middleware runs.
+ *
+ * Controller namespaces:
+ *   A short controller name ('UserController') is looked up in
+ *   App\Controllers\ first, then App\Http\Controllers\.
  */
 class Router
 {
+    /**
+     * Namespaces tried, in order, for controller names that are not
+     * fully-qualified: the skeleton's App\Controllers, then the
+     * App\Http\Controllers convention used by earlier releases.
+     */
+    private const CONTROLLER_NAMESPACES = ['App\\Controllers\\', 'App\\Http\\Controllers\\'];
+
     /** @var array<int, array<string, mixed>> */
     private array $routes      = [];
     /** @var array<string, string> */
@@ -250,14 +268,16 @@ class Router
     /**
      * Serialize the current route table to a PHP file.
      *
-     * Only routes with array actions ([Controller::class, 'method']) are cached.
-     * Closure actions cannot be serialized and are silently excluded.
+     * Route actions must be cacheable: [Controller::class, 'method'] arrays or
+     * Route::view() actions. Closure actions (and middleware objects without
+     * __set_state()) cannot be serialized — the cache is not written and a
+     * RuntimeException lists every offending route.
      *
      * The cache file can be loaded with loadFromCache() to skip re-executing
      * routes/http.php on every request in production.
      *
      * @param string $path Absolute path to the cache file (e.g. storage/cache/routes.php)
-     * @throws \RuntimeException If the file cannot be written
+     * @throws \RuntimeException If a route is not cacheable or the file cannot be written
      */
     public function saveToCache(string $path): void
     {
@@ -352,6 +372,7 @@ class Router
                 $params = $this->resolveBindings(
                     $this->extractParams($matches)
                 );
+                $params = $this->coerceScalarParams($route['action'], $params, $method, $uri);
 
                 $response = (new Pipeline($this->resolver))
                     ->send($request)
@@ -454,13 +475,9 @@ class Router
         if (is_array($action)) {
             [$controller, $method] = $action;
 
-            if (is_string($controller) && !class_exists($controller)) {
-                $fqn = '\\App\\Http\\Controllers\\' . $controller;
-                if (class_exists($fqn)) {
-                    $controller = $fqn;
-                } else {
-                    throw new \RuntimeException("Controller not found: {$controller}");
-                }
+            if (is_string($controller)) {
+                $controller = $this->resolveControllerClass($controller)
+                    ?? throw new \RuntimeException("Controller not found: {$controller}");
             }
 
             $instance = is_string($controller)
@@ -475,6 +492,164 @@ class Router
         }
 
         throw new \RuntimeException('Invalid route action — must be callable or [Controller::class, method]');
+    }
+
+    /**
+     * The fully-qualified controller class, trying CONTROLLER_NAMESPACES for
+     * short names; null when no class exists.
+     */
+    private function resolveControllerClass(string $controller): ?string
+    {
+        if (class_exists($controller)) {
+            return $controller;
+        }
+
+        foreach (self::CONTROLLER_NAMESPACES as $namespace) {
+            $fqn = $namespace . ltrim($controller, '\\');
+            if (class_exists($fqn)) {
+                return $fqn;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert raw route parameters to the int / float types declared by the
+     * action, so "/users/42" reaches `int $id` as 42 under any invoker.
+     *
+     * The action parameter is found by name, otherwise by position as in the
+     * default invocation ($request, ...$params). Parameters with a binding,
+     * and actions that cannot be reflected, are left untouched.
+     *
+     * @param  array<string, mixed> $params
+     * @return array<string, mixed>
+     * @throws RouteNotFoundException When a value is not a valid number for the declared type.
+     */
+    private function coerceScalarParams(mixed $action, array $params, string $method, string $uri): array
+    {
+        if ($params === []) {
+            return $params;
+        }
+
+        $reflection = $this->reflectAction($action);
+        if ($reflection === null) {
+            return $params;
+        }
+
+        $parameters = $reflection->getParameters();
+        $byName     = [];
+        foreach ($parameters as $parameter) {
+            $byName[$parameter->getName()] = $parameter;
+        }
+
+        $position = 0;
+        foreach ($params as $key => $value) {
+            $position++; // index 0 is the request in the default invocation
+
+            if (!is_string($value) || isset($this->bindings[$key])) {
+                continue;
+            }
+
+            $parameter = $byName[$key] ?? null;
+            if ($parameter === null) {
+                $candidate = $parameters[$position] ?? null;
+                // Positional only when that argument is not claimed by another route parameter's name.
+                if ($candidate !== null && !$candidate->isVariadic() && !array_key_exists($candidate->getName(), $params)) {
+                    $parameter = $candidate;
+                }
+            }
+
+            $types = $parameter !== null ? self::numericTypes($parameter) : [];
+            if ($types === []) {
+                continue;
+            }
+
+            $params[$key] = self::toNumber($value, $types)
+                ?? throw new RouteNotFoundException($method, $uri);
+        }
+
+        return $params;
+    }
+
+    /**
+     * Reflect a route action without instantiating controllers.
+     */
+    private function reflectAction(mixed $action): ?\ReflectionFunctionAbstract
+    {
+        try {
+            if ($action instanceof \Closure) {
+                return new \ReflectionFunction($action);
+            }
+
+            if (is_array($action)) {
+                [$controller, $name] = array_pad(array_values($action), 2, null);
+                if (is_string($controller)) {
+                    $controller = $this->resolveControllerClass($controller);
+                }
+                if ((is_string($controller) || is_object($controller)) && is_string($name) && method_exists($controller, $name)) {
+                    return new \ReflectionMethod($controller, $name);
+                }
+                return null;
+            }
+
+            if (is_callable($action)) {
+                return new \ReflectionFunction(\Closure::fromCallable($action));
+            }
+        } catch (\ReflectionException) {
+        }
+
+        return null;
+    }
+
+    /**
+     * 'int' / 'float' when the parameter accepts only numbers (and null).
+     *
+     * @return array<int, string>
+     */
+    private static function numericTypes(\ReflectionParameter $parameter): array
+    {
+        $type  = $parameter->getType();
+        $named = match (true) {
+            $type instanceof \ReflectionNamedType => [$type],
+            $type instanceof \ReflectionUnionType => $type->getTypes(),
+            default                               => [],
+        };
+
+        $names = [];
+        foreach ($named as $t) {
+            $name = $t instanceof \ReflectionNamedType ? $t->getName() : '';
+            if ($name === 'null') {
+                continue;
+            }
+            if ($name !== 'int' && $name !== 'float') {
+                return [];
+            }
+            $names[] = $name;
+        }
+
+        return $names;
+    }
+
+    /**
+     * Strictly parse a route segment as int (digits only, within range) or float.
+     *
+     * @param array<int, string> $types
+     */
+    private static function toNumber(string $value, array $types): int|float|null
+    {
+        if (!is_numeric($value) || trim($value) !== $value) {
+            return null;
+        }
+
+        if (in_array('int', $types, true) && preg_match('/^[+-]?\d+$/', $value) === 1) {
+            $number = $value + 0;
+            if (is_int($number)) {
+                return $number;
+            }
+        }
+
+        return in_array('float', $types, true) ? (float) $value : null;
     }
 
     /**

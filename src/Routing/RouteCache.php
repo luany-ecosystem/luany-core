@@ -8,9 +8,11 @@ namespace Luany\Core\Routing;
  * Serializes and loads the compiled route table to/from a PHP file,
  * eliminating the need to re-execute routes/http.php on every request.
  *
- * Only routes with array actions ([Controller::class, 'method']) are stored.
- * Closure actions cannot be serialized and are silently excluded — this is
- * intentional. In production, all routes should use controller array syntax.
+ * Route actions must be [Controller::class, 'method'] arrays or
+ * Route::view() routes. Closure actions (and object middleware without
+ * __set_state()) cannot be serialized: store() throws a RuntimeException
+ * listing every offending route and writes nothing. Route::model() bindings
+ * are stored; closure Route::bind() resolvers are not.
  *
  * Cache file format:
  *   A plain PHP file that returns an array:

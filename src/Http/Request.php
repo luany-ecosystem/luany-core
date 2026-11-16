@@ -433,9 +433,19 @@ class Request
      * Remove the front-controller directory from the path for sub-folder
      * installs. Only strips on a path-segment boundary: with SCRIPT_NAME
      * "/app/index.php", "/app/x" → "/x" but "/application/x" is untouched.
+     *
+     * PHP's built-in server (luany serve) reports a request for a path with
+     * an extension, e.g. "/en/feed.json", as SCRIPT_NAME "/en/feed.json":
+     * that is not a front controller, so nothing is stripped.
      */
     public static function stripBasePath(string $uri, string $scriptName): string
     {
+        $scriptName = str_replace('\\', '/', $scriptName);
+
+        if (!str_ends_with(strtolower($scriptName), '.php') || $scriptName === $uri) {
+            return $uri;
+        }
+
         $scriptDir = str_replace('\\', '/', dirname($scriptName));
 
         if ($scriptDir === '' || $scriptDir === '/' || $scriptDir === '.') {

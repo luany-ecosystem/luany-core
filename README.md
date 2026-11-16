@@ -143,6 +143,10 @@ Route::get('/posts/{post}/comments/{comment}', [CommentController::class, 'show'
 // Parameters passed in order of appearance. Never written to $_GET.
 ```
 
+A parameter declared `int` or `float` receives a number; a segment that is not a valid number for that type (`/users/abc` for `int $id`) is a 404 (`RouteNotFoundException`), not a `TypeError`.
+
+Short controller names (`['UserController', 'show']`) are resolved in `App\Controllers\`, then `App\Http\Controllers\`.
+
 ### Named Routes
 
 ```php
@@ -298,7 +302,7 @@ Use another PSR-17 factory explicitly with `Luany\Core\Psr\Psr17::use($factory)`
 
 ### Route Caching
 
-Serializes the compiled route table to a PHP file (written atomically). Array actions (`[Controller::class, 'method']`), `Route::view()` routes and `Route::model()` bindings are cached. Closure actions, closure `Route::bind()` resolvers and object middleware without `__set_state()` cannot be serialized: `Route::cache()` **throws and lists the offending routes** instead of silently dropping them.
+Serializes the compiled route table to a PHP file (written atomically). Array actions (`[Controller::class, 'method']`), `Route::view()` routes and `Route::model()` bindings are cached. Closure actions and object middleware without `__set_state()` cannot be serialized: `Route::cache()` **throws and lists the offending routes** instead of silently dropping them. Closure `Route::bind()` resolvers are not part of the cache — register them outside the route files (e.g. in a service provider) so they exist when routes come from the cache.
 
 ```php
 // In production bootstrap:
@@ -467,7 +471,7 @@ public function render(\Throwable $e): Response
 
 **New — `src/Routing/RouteCache.php`**
 
-- `store()` — serialize route table to PHP file (closure routes excluded)
+- `store()` — serialize route table to PHP file (throws, listing them, if any route uses a closure action)
 - `load()` — load cached route table
 - `clear()` — delete cache file
 
