@@ -177,6 +177,11 @@ class HardeningTest extends TestCase
         $this->assertSame('/', Request::stripBasePath('/app', '/app/index.php'));
         $this->assertSame('/application/x', Request::stripBasePath('/application/x', '/app/index.php'));
         $this->assertSame('/x', Request::stripBasePath('/x', '/index.php'));
+        // Built-in server: SCRIPT_NAME is the requested path when it has an extension.
+        $this->assertSame('/en/search.json', Request::stripBasePath('/en/search.json', '/en/search.json'));
+        $this->assertSame('/blog/feed.xml', Request::stripBasePath('/blog/feed.xml', '/blog/feed.xml'));
+        $this->assertSame('/legacy/page.php', Request::stripBasePath('/legacy/page.php', '/legacy/page.php'));
+        $this->assertSame('/x', Request::stripBasePath('/app/x', '\\app\\index.php'));
     }
 
     // ── #10 Response ─────────────────────────────────────────────────────────
