@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [1.4.0] — 2026-11-16
 
 ### Fixed
 - `Request::fromGlobals()` no longer strips part of the path when PHP's built-in server (`luany serve`) reports a path with an extension as `SCRIPT_NAME` — routes such as `/en/search.json` or `/sitemap.xml` now match in development.
