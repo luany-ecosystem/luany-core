@@ -10,6 +10,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - `Request::fromGlobals()` no longer strips part of the path when PHP's built-in server (`luany serve`) reports a path with an extension as `SCRIPT_NAME` — routes such as `/en/search.json` or `/sitemap.xml` now match in development.
+- Route parameters bound to an `int` / `float` action argument are converted to that type; a segment that is not a valid number (e.g. `/users/abc` for `int $id`) now throws `RouteNotFoundException` (404) before route middleware runs, instead of a `TypeError` (500). Applies to the default invocation and to custom invokers (matched by name, then position).
+- Short controller names (`['UserController', 'show']`) are now resolved in the skeleton's `App\Controllers\` namespace first, then in `App\Http\Controllers\` as before.
+- Route-cache docblocks (`Route::cache()`, `Router::saveToCache()`, `RouteCache`) no longer claim closure routes are "silently excluded" — `RouteCache::store()` throws and lists them, as documented in the README.
 
 ## [1.3.0] — 2026-11-11
 

@@ -286,11 +286,16 @@ class Route
     /**
      * Save the current route table to a cache file.
      *
-     * Only array-action routes are cached (closure routes are excluded).
+     * Actions must be [Controller::class, 'method'] arrays or Route::view()
+     * routes: if any route uses a closure action (or object middleware without
+     * __set_state()), nothing is written and a RuntimeException lists them.
+     * Route::model() bindings are cached; closure Route::bind() resolvers are
+     * not, so register those outside the route files.
      * Call this once after all routes have been registered — typically in
      * a `luany route:cache` CLI command (Phase 6).
      *
      * @param string $path Absolute path to the cache file
+     * @throws \RuntimeException If a route is not cacheable or the file cannot be written
      */
     public static function cache(string $path): void
     {
